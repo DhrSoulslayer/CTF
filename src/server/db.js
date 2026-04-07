@@ -111,6 +111,17 @@ function normalizeMapView(input) {
   };
 }
 
+function normalizeImportedGeofence(row, index) {
+  const fallbackName = `Territory-${index + 1}`;
+  const name = String(row?.name || fallbackName).trim();
+  const geojson = row?.geojson;
+  if (!name) throw new Error('invalid geofence import: name is required');
+  if (!geojson || geojson.type !== 'Polygon' || !Array.isArray(geojson.coordinates)) {
+    throw new Error(`invalid geofence import for ${name}: geojson polygon is required`);
+  }
+  return { name, geojson };
+}
+
 module.exports = {
   getMapDefaultView() {
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'map_default_view'").get();
@@ -130,6 +141,48 @@ module.exports = {
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `).run(JSON.stringify(normalized));
     return normalized;
+  },
+
+  importGeofences(geofences, replaceExisting = true) {
+    if (!Array.isArray(geofences)) {
+      throw new Error('invalid geofence import: geofences must be an array');
+    }
+
+    const seen = new Set();
+    const normalized = geofences.map((row, idx) => {
+      const gf = normalizeImportedGeofence(row, idx);
+      if (seen.has(gf.name)) {
+        throw new Error(`invalid geofence import: duplicate name ${gf.name}`);
+      }
+      seen.add(gf.name);
+      return gf;
+    });
+
+    const now = new Date().toISOString();
+    const upsert = db.prepare(`
+      INSERT INTO geofences (name, geojson, owner, owner_since, updated_at)
+      VALUES (?, ?, 'Neutral', ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        geojson = excluded.geojson,
+        owner = 'Neutral',
+        owner_since = excluded.owner_since,
+        updated_at = excluded.updated_at
+    `);
+
+    db.transaction(() => {
+      if (replaceExisting) {
+        db.prepare('DELETE FROM geofences').run();
+        db.prepare('DELETE FROM occupancy_by_geofence').run();
+      }
+      normalized.forEach(gf => {
+        upsert.run(gf.name, JSON.stringify(gf.geojson), now, now);
+      });
+    })();
+
+    return {
+      imported: normalized.length,
+      geofences: this.getAllGeofences(),
+    };
   },
 
   getAllGeofences() {

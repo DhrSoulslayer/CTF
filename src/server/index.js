@@ -143,6 +143,30 @@ app.get('/api/admin/scores', adminAuth, requireAdminPageRequest, (_req, res) => 
   });
 });
 
+app.get('/api/admin/geofences/export', adminAuth, requireAdminPageRequest, (_req, res) => {
+  const geofences = db.getAllGeofences().map(gf => ({
+    name: gf.name,
+    geojson: gf.geojson,
+  }));
+  res.json({
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    geofences,
+  });
+});
+
+app.post('/api/admin/geofences/import', adminAuth, requireAdminPageRequest, (req, res) => {
+  try {
+    const mode = req.body?.mode === 'merge' ? 'merge' : 'replace';
+    const result = db.importGeofences(req.body?.geofences || [], mode === 'replace');
+    const snapshot = buildSnapshot();
+    broadcast(snapshot);
+    res.json({ ok: true, mode, imported: result.imported });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'invalid geofence import payload' });
+  }
+});
+
 app.get('/api/admin/settings', adminAuth, requireAdminPageRequest, (_req, res) => {
   res.json({ mapDefault: db.getMapDefaultView() });
 });

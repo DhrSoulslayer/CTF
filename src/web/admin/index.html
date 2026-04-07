@@ -185,6 +185,9 @@
         <button class="btn-info" id="btn-home">⌂ Home</button>
         <button class="btn-info" id="btn-map-default-jump">⌖ Default</button>
         <button class="btn-warn" id="btn-map-default-save">Save view as default</button>
+        <button class="btn-info" id="btn-export-polygons">Export polygons</button>
+        <button class="btn-warn" id="btn-import-polygons">Import polygons</button>
+        <input id="input-import-polygons" type="file" accept="application/json,.json" style="display:none" />
         <span id="map-default-info" style="color:#9fd3ff;font-size:0.82rem">Default: --</span>
         <span id="selected-name" style="color:#ff0;font-weight:bold;font-size:0.85rem">(none)</span>
         <span id="cursor-coords" style="color:#9fd3ff;font-size:0.85rem">Cursor: --, --</span>
@@ -437,6 +440,65 @@ async function apiDelete(url) {
   const r = await fetch(url, { method: 'DELETE' });
   if (!r.ok) throw new Error(`DELETE ${url} → ${r.status}`);
   return r.json();
+}
+
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function normalizeImportPayload(raw) {
+  if (Array.isArray(raw)) {
+    return raw;
+  }
+  if (Array.isArray(raw?.geofences)) {
+    return raw.geofences;
+  }
+  if (raw?.type === 'FeatureCollection' && Array.isArray(raw.features)) {
+    return raw.features.map((feature, idx) => ({
+      name: String(feature?.properties?.name || `Territory-${idx + 1}`),
+      geojson: feature?.geometry,
+    }));
+  }
+  throw new Error('Onbekend importformaat. Gebruik exportbestand van deze applicatie.');
+}
+
+async function exportPolygons() {
+  const r = await fetch('/api/admin/geofences/export');
+  if (!r.ok) throw new Error(`GET /api/admin/geofences/export → ${r.status}`);
+  const data = await r.json();
+  const stamp = new Date().toISOString().replaceAll(':', '-');
+  downloadJson(`ctf-polygons-${stamp}.json`, data);
+}
+
+async function importPolygonsFile(file) {
+  const text = await file.text();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('Bestand is geen geldige JSON');
+  }
+  const geofences = normalizeImportPayload(parsed);
+  if (!geofences.length) {
+    throw new Error('Geen polygonen gevonden in importbestand');
+  }
+
+  const ok = await confirmDangerAction('IMPORT', 'Import vervangt alle bestaande polygonen.');
+  if (!ok) return;
+
+  const result = await apiPost('/api/admin/geofences/import', {
+    mode: 'replace',
+    geofences,
+  });
+  alert(`Import voltooid: ${result.imported} polygonen`);
 }
 
 function setGameStatusUI(status) {
@@ -709,6 +771,27 @@ document.getElementById('btn-delete').addEventListener('click', async () => {
 
 document.getElementById('btn-refresh').addEventListener('click', loadGeofences);
 document.getElementById('btn-home').addEventListener('click', fitMapToAllPolygons);
+document.getElementById('btn-export-polygons').addEventListener('click', async () => {
+  try {
+    await exportPolygons();
+  } catch (err) {
+    alert('Error exporting polygons: ' + err.message);
+  }
+});
+document.getElementById('btn-import-polygons').addEventListener('click', () => {
+  document.getElementById('input-import-polygons').click();
+});
+document.getElementById('input-import-polygons').addEventListener('change', async e => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    await importPolygonsFile(file);
+    selectGeofence(null);
+  } catch (err) {
+    alert('Error importing polygons: ' + err.message);
+  }
+});
 document.getElementById('btn-map-default-jump').addEventListener('click', () => {
   map.setView([mapDefaultView.lat, mapDefaultView.lon], mapDefaultView.zoom);
 });
