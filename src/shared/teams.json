@@ -1,12 +1,12 @@
 {
   "devices": {
     "15839851": "Alfa",
-    "placeholder_bravo":   "Bravo",
-    "placeholder_charlie": "Charlie",
-    "placeholder_delta":   "Delta",
-    "placeholder_echo":    "Echo",
-    "placeholder_foxtrot": "Foxtrot",
-    "placeholder_juliet":  "Juliet",
-    "placeholder_india":   "India"
+    "12334567":   "Bravo",
+    "12343434": "Charlie",
+    "12345678":   "Delta",
+    "76447656":    "Echo",
+    "33333333": "Foxtrot",
+    "99999999":  "Juliet",
+    "22222222":   "India"
   }
 }

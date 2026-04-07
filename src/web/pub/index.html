@@ -34,6 +34,17 @@
       display: block; margin-top: 6px; font-size: 0.75rem; color: #aaa;
       cursor: pointer; text-decoration: underline; user-select: none;
     }
+    #btn-home {
+      margin-left: 10px;
+      padding: 2px 8px;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      color: #fff;
+      background: #4363d8;
+      cursor: pointer;
+    }
     #owners-wrap { margin-top: 6px; display: none; }
     #owners-wrap.open { display: block; }
     #owners-table { border-collapse: collapse; font-size: 0.75rem; width: 100%; }
@@ -54,7 +65,7 @@
   <span id="status">connecting…</span>
   <h1>🚩 CTF Live</h1>
   <div id="pills"></div>
-  <span id="owners-toggle">▶ Show territory owners</span>
+  <span id="owners-toggle">▶ Show territory owners</span><button id="btn-home" type="button">⌂ Home</button>
   <div id="owners-wrap">
     <table id="owners-table">
       <thead><tr><th>Territory</th><th>Owner</th></tr></thead>
@@ -93,6 +104,9 @@ const geofenceLayers = {};   // name → L.Polygon
 const markerLayers   = {};   // deviceId → L.Marker
 let   scores = {};
 let   owners = {};
+let   gameStatus = 'unknown';
+const FIRST_OPEN_FIT_KEY = 'ctf-fit-polygons-once-v1';
+let   hasAutoFitted = false;
 
 // ── UI helpers ─────────────────────────────────────────────────────────────────
 function teamColor(team) { return TEAM_COLORS[team] || TEAM_COLORS.Neutral; }
@@ -113,6 +127,18 @@ function updateScoreboard() {
     pill.appendChild(score);
     pills.appendChild(pill);
   });
+}
+
+function applyGameStatus(status) {
+  gameStatus = status;
+  const header = document.querySelector('#header h1');
+  const labels = {
+    running: 'running',
+    paused: 'paused',
+    stopped: 'stopped',
+    unknown: 'unknown',
+  };
+  header.textContent = `🚩 CTF Live (${labels[gameStatus] || 'unknown'})`;
 }
 
 function updateOwnersTable() {
@@ -153,6 +179,32 @@ function removeGeofence(name) {
     map.removeLayer(geofenceLayers[name]);
     delete geofenceLayers[name];
   }
+}
+
+function maybeFitMapToPolygonsOnce() {
+  if (hasAutoFitted) return;
+  if (localStorage.getItem(FIRST_OPEN_FIT_KEY) === '1') {
+    hasAutoFitted = true;
+    return;
+  }
+
+  const layers = Object.values(geofenceLayers);
+  if (!layers.length) return;
+
+  const bounds = L.featureGroup(layers).getBounds();
+  if (!bounds.isValid()) return;
+
+  map.fitBounds(bounds.pad(0.15));
+  localStorage.setItem(FIRST_OPEN_FIT_KEY, '1');
+  hasAutoFitted = true;
+}
+
+function fitMapToAllPolygons() {
+  const layers = Object.values(geofenceLayers);
+  if (!layers.length) return;
+  const bounds = L.featureGroup(layers).getBounds();
+  if (!bounds.isValid()) return;
+  map.fitBounds(bounds.pad(0.15));
 }
 
 function fmtTime(ts) {
@@ -196,11 +248,15 @@ function applySnapshot(data) {
   // Clear existing layers
   Object.values(geofenceLayers).forEach(l => map.removeLayer(l));
   Object.keys(geofenceLayers).forEach(k => delete geofenceLayers[k]);
+  Object.values(markerLayers).forEach(l => map.removeLayer(l));
+  Object.keys(markerLayers).forEach(k => delete markerLayers[k]);
 
   scores = data.scores || {};
   owners = data.owners || {};
+  applyGameStatus(data.game?.status || 'unknown');
 
   (data.geofences || []).forEach(gf => upsertGeofence(gf));
+  maybeFitMapToPolygonsOnce();
   Object.values(data.positions || {}).forEach(pos => upsertMarker(pos));
 
   updateScoreboard();
@@ -264,6 +320,10 @@ function connect() {
         updateScoreboard();
         updateOwnersTable();
         break;
+
+      case 'game_status':
+        applyGameStatus(msg.status || 'unknown');
+        break;
     }
   };
 }
@@ -276,6 +336,8 @@ document.getElementById('owners-toggle').addEventListener('click', function() {
   const open = wrap.classList.toggle('open');
   this.textContent = (open ? '▼ Hide' : '▶ Show') + ' territory owners';
 });
+
+document.getElementById('btn-home').addEventListener('click', fitMapToAllPolygons);
 </script>
 </body>
 </html>

@@ -39,7 +39,19 @@ db.exec(`
     team   TEXT PRIMARY KEY,
     score  INTEGER NOT NULL DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS game_state (
+    id      INTEGER PRIMARY KEY CHECK (id = 1),
+    status  TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `);
+
+db.prepare(`
+  INSERT INTO game_state (id, status, updated_at)
+  VALUES (1, 'running', ?)
+  ON CONFLICT(id) DO NOTHING
+`).run(new Date().toISOString());
 
 module.exports = {
   getAllGeofences() {
@@ -143,5 +155,25 @@ module.exports = {
       INSERT INTO scores (team, score) VALUES (?, 1)
       ON CONFLICT(team) DO UPDATE SET score = score + 1
     `).run(team);
+  },
+
+  getGameStatus() {
+    const row = db.prepare('SELECT status FROM game_state WHERE id = 1').get();
+    return row?.status || 'running';
+  },
+
+  setGameStatus(status) {
+    db.prepare(
+      'UPDATE game_state SET status = ?, updated_at = ? WHERE id = 1'
+    ).run(status, new Date().toISOString());
+  },
+
+  resetGameProgress() {
+    const now = new Date().toISOString();
+    db.transaction(() => {
+      db.prepare('DELETE FROM positions').run();
+      db.prepare('DELETE FROM scores').run();
+      db.prepare("UPDATE geofences SET owner = 'Neutral', updated_at = ?").run(now);
+    })();
   },
 };

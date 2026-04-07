@@ -29,15 +29,20 @@ function broadcast(data) {
   });
 }
 
-wss.on('connection', ws => {
-  // Send full snapshot on connect / reconnect
-  const snapshot = {
+function buildSnapshot() {
+  return {
     type:      'snapshot',
     geofences: db.getAllGeofences(),
     positions: db.getAllPositions(),
     scores:    db.getAllScores(),
     owners:    db.getAllOwners(),
+    game:      { status: gameLogic.getGameStatus() },
   };
+}
+
+wss.on('connection', ws => {
+  // Send full snapshot on connect / reconnect
+  const snapshot = buildSnapshot();
   ws.send(JSON.stringify(snapshot));
 });
 
@@ -65,6 +70,28 @@ function adminAuth(req, res, next) {
   next();
 }
 
+function requireAdminPageRequest(req, res, next) {
+  const host = req.headers.host;
+  const expectedOrigin = `${req.protocol}://${host}`;
+  const refererRaw = req.headers.referer || '';
+
+  if (!refererRaw) {
+    return res.status(403).json({ error: 'Admin page referer is required' });
+  }
+
+  try {
+    const referer = new URL(refererRaw);
+    const refererOrigin = `${referer.protocol}//${referer.host}`;
+    if (refererOrigin !== expectedOrigin || !referer.pathname.startsWith('/admin')) {
+      return res.status(403).json({ error: 'Request must come from the admin page' });
+    }
+  } catch {
+    return res.status(403).json({ error: 'Invalid referer header' });
+  }
+
+  next();
+}
+
 // ── Static files ──────────────────────────────────────────────────────────────
 app.use('/lib',   express.static(path.join(__dirname, '../web/lib')));
 app.use('/pub',   express.static(path.join(__dirname, '../web/pub')));
@@ -78,12 +105,30 @@ app.get('/healthz', (_req, res) => res.json({ status: 'ok' }));
 
 // ── Snapshot API ──────────────────────────────────────────────────────────────
 app.get('/api/state', (_req, res) => {
-  res.json({
-    geofences: db.getAllGeofences(),
-    positions: db.getAllPositions(),
-    scores:    db.getAllScores(),
-    owners:    db.getAllOwners(),
-  });
+  const snapshot = buildSnapshot();
+  delete snapshot.type;
+  res.json(snapshot);
+});
+
+app.get('/api/game', (_req, res) => {
+  res.json({ status: gameLogic.getGameStatus() });
+});
+
+app.put('/api/game/status', adminAuth, requireAdminPageRequest, (req, res) => {
+  const { status } = req.body;
+  if (!['running', 'paused', 'stopped'].includes(status)) {
+    return res.status(400).json({ error: 'status must be running, paused, or stopped' });
+  }
+  const nextStatus = gameLogic.setGameStatus(status);
+  broadcast({ type: 'game_status', status: nextStatus });
+  res.json({ status: nextStatus });
+});
+
+app.post('/api/game/reset', adminAuth, requireAdminPageRequest, (_req, res) => {
+  gameLogic.resetGame();
+  const snapshot = buildSnapshot();
+  broadcast(snapshot);
+  res.json({ ok: true, game: snapshot.game });
 });
 
 // ── Traccar webhook ───────────────────────────────────────────────────────────
@@ -101,7 +146,7 @@ app.get('/api/geofences', (_req, res) => {
   res.json(db.getAllGeofences());
 });
 
-app.post('/api/geofences', adminAuth, (req, res) => {
+app.post('/api/geofences', adminAuth, requireAdminPageRequest, (req, res) => {
   const { name, geojson } = req.body;
   if (!name || !geojson) {
     return res.status(400).json({ error: 'name and geojson are required' });
@@ -112,7 +157,7 @@ app.post('/api/geofences', adminAuth, (req, res) => {
   res.status(201).json(geofence);
 });
 
-app.put('/api/geofences/:name', adminAuth, (req, res) => {
+app.put('/api/geofences/:name', adminAuth, requireAdminPageRequest, (req, res) => {
   const { name }               = req.params;
   const { geojson, newName }   = req.body;
 
@@ -132,7 +177,7 @@ app.put('/api/geofences/:name', adminAuth, (req, res) => {
   res.json(geofence);
 });
 
-app.delete('/api/geofences/:name', adminAuth, (req, res) => {
+app.delete('/api/geofences/:name', adminAuth, requireAdminPageRequest, (req, res) => {
   const { name } = req.params;
   db.deleteGeofence(name);
   broadcast({ type: 'geofence_delete', name });

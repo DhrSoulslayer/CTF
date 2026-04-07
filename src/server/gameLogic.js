@@ -17,6 +17,9 @@ const TEAM_COLORS = {
   Neutral: '#808080',
 };
 
+const VALID_GAME_STATES = new Set(['running', 'paused', 'stopped']);
+let gameStatus = db.getGameStatus();
+
 // ── Device → team mapping ─────────────────────────────────────────────────────
 let deviceTeams = {};
 const teamsFile = path.join(__dirname, '../shared/teams.json');
@@ -31,6 +34,31 @@ try {
 // ── In-memory capture state ───────────────────────────────────────────────────
 // Key: "<deviceId>::<geofenceName>"  →  { enteredAt: ms|null, triggered: bool }
 const geofenceState = {};
+
+function clearGeofenceState() {
+  Object.keys(geofenceState).forEach(key => delete geofenceState[key]);
+}
+
+function getGameStatus() {
+  return gameStatus;
+}
+
+function setGameStatus(status) {
+  if (!VALID_GAME_STATES.has(status)) {
+    throw new Error('invalid game status');
+  }
+  gameStatus = status;
+  db.setGameStatus(status);
+  if (status === 'stopped') {
+    clearGeofenceState();
+  }
+  return gameStatus;
+}
+
+function resetGame() {
+  db.resetGameProgress();
+  clearGeofenceState();
+}
 
 // Small epsilon prevents division by zero when two ring vertices share the same latitude.
 const EPSILON = 1e-12;
@@ -67,6 +95,9 @@ function handlePosition(payload, broadcast) {
   // Persist & broadcast position
   db.upsertPosition(deviceId, name, lat, lon, timestamp);
   broadcast({ type: 'position', deviceId, name, lat, lon, timestamp });
+
+  // Geofence capture check only while game is actively running.
+  if (gameStatus !== 'running') return;
 
   // Geofence capture check
   const geofences = db.getAllGeofences();
@@ -116,4 +147,10 @@ function handlePosition(payload, broadcast) {
   }
 }
 
-module.exports = { handlePosition, TEAM_COLORS };
+module.exports = {
+  handlePosition,
+  TEAM_COLORS,
+  getGameStatus,
+  setGameStatus,
+  resetGame,
+};

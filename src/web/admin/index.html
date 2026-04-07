@@ -46,6 +46,25 @@
 
     #map { flex: 1; }
 
+    /* Make Leaflet.draw icon-only controls readable with text labels */
+    #map .leaflet-draw-toolbar a {
+      width: auto;
+      min-width: 120px;
+      padding: 0 10px;
+      background-image: none !important;
+      background-color: #16213e;
+      color: #eee;
+      font: 12px/30px Arial, sans-serif;
+      text-align: left;
+      text-decoration: none;
+    }
+    #map .leaflet-draw-toolbar a::after {
+      content: attr(title);
+    }
+    #map .leaflet-touch .leaflet-draw-toolbar a {
+      font: 12px/32px Arial, sans-serif;
+    }
+
     /* modal */
     #modal-overlay {
       display: none; position: fixed; inset: 0;
@@ -77,10 +96,17 @@
 
 <div id="toolbar">
   <label>Selected territory:</label>
+  <button class="btn-info" id="btn-home">⌂ Home</button>
   <span id="selected-name" style="color:#ff0;font-weight:bold;font-size:0.85rem">(none)</span>
   <button class="btn-warn" id="btn-rename" disabled>Rename</button>
   <button class="btn-danger" id="btn-delete" disabled>Delete</button>
   <button class="btn-info" id="btn-refresh">↺ Refresh</button>
+  <span style="margin-left:12px;color:#aee;font-size:0.85rem">Game:</span>
+  <span id="game-status" style="font-weight:bold;font-size:0.85rem">unknown</span>
+  <button class="btn-info" id="btn-game-start">Start</button>
+  <button class="btn-warn" id="btn-game-pause">Pause</button>
+  <button class="btn-danger" id="btn-game-stop">Stop</button>
+  <button class="btn-danger" id="btn-game-reset">Reset</button>
 </div>
 
 <!-- Name prompt modal -->
@@ -134,13 +160,17 @@ map.addControl(drawControl);
 const gfLayers  = {};   // name → L.Polygon
 const markerLayers = {}; // deviceId → L.Marker
 let   selectedName = null;
+let   gameStatus = 'unknown';
+const FIRST_OPEN_FIT_KEY = 'ctf-fit-polygons-once-v1';
+let   hasAutoFitted = false;
 
 // ── Modal helper ───────────────────────────────────────────────────────────────
-function promptModal(title, defaultVal = '') {
+function promptModal(title, defaultVal = '', placeholder = 'Enter name…') {
   return new Promise(resolve => {
     document.getElementById('modal-title').textContent = title;
     const input = document.getElementById('modal-input');
     input.value = defaultVal;
+    input.placeholder = placeholder;
     const overlay = document.getElementById('modal-overlay');
     overlay.classList.add('open');
     input.focus();
@@ -197,6 +227,32 @@ function removeGfLayer(name) {
   if (selectedName === name) selectGeofence(null);
 }
 
+function maybeFitMapToPolygonsOnce() {
+  if (hasAutoFitted) return;
+  if (localStorage.getItem(FIRST_OPEN_FIT_KEY) === '1') {
+    hasAutoFitted = true;
+    return;
+  }
+
+  const layers = Object.values(gfLayers);
+  if (!layers.length) return;
+
+  const bounds = L.featureGroup(layers).getBounds();
+  if (!bounds.isValid()) return;
+
+  map.fitBounds(bounds.pad(0.15));
+  localStorage.setItem(FIRST_OPEN_FIT_KEY, '1');
+  hasAutoFitted = true;
+}
+
+function fitMapToAllPolygons() {
+  const layers = Object.values(gfLayers);
+  if (!layers.length) return;
+  const bounds = L.featureGroup(layers).getBounds();
+  if (!bounds.isValid()) return;
+  map.fitBounds(bounds.pad(0.15));
+}
+
 // ── Convert Leaflet layer → GeoJSON Polygon ───────────────────────────────────
 function isRingClosed(coords) {
   if (coords.length < 2) return false;
@@ -228,12 +284,49 @@ async function apiDelete(url) {
   return r.json();
 }
 
+function setGameStatusUI(status) {
+  gameStatus = status;
+  const el = document.getElementById('game-status');
+  el.textContent = status;
+  const colors = {
+    running: '#3cb44b',
+    paused: '#ffe119',
+    stopped: '#f58231',
+    unknown: '#ccc',
+  };
+  el.style.color = colors[status] || '#ccc';
+}
+
+async function setGameStatus(status) {
+  const r = await apiPut('/api/game/status', { status });
+  setGameStatusUI(r.status);
+}
+
+async function resetGame() {
+  await apiPost('/api/game/reset', {});
+}
+
+async function confirmDangerAction(actionWord, impactText) {
+  const text = await promptModal(
+    `${impactText}\nType ${actionWord} to continue`,
+    '',
+    `Type ${actionWord}`
+  );
+  return text === actionWord;
+}
+
 // ── Load all geofences ─────────────────────────────────────────────────────────
 async function loadGeofences() {
   const list = await (await fetch('/api/geofences')).json();
   // Clear
   Object.keys(gfLayers).forEach(n => { drawnItems.removeLayer(gfLayers[n]); delete gfLayers[n]; });
   list.forEach(gf => addGfLayer(gf));
+  maybeFitMapToPolygonsOnce();
+}
+
+function clearAllMarkers() {
+  Object.values(markerLayers).forEach(m => map.removeLayer(m));
+  Object.keys(markerLayers).forEach(id => delete markerLayers[id]);
 }
 
 // ── Leaflet.draw events ────────────────────────────────────────────────────────
@@ -295,6 +388,44 @@ document.getElementById('btn-delete').addEventListener('click', async () => {
 });
 
 document.getElementById('btn-refresh').addEventListener('click', loadGeofences);
+document.getElementById('btn-home').addEventListener('click', fitMapToAllPolygons);
+
+document.getElementById('btn-game-start').addEventListener('click', async () => {
+  try {
+    await setGameStatus('running');
+  } catch (err) {
+    alert('Error starting game: ' + err.message);
+  }
+});
+
+document.getElementById('btn-game-pause').addEventListener('click', async () => {
+  try {
+    await setGameStatus('paused');
+  } catch (err) {
+    alert('Error pausing game: ' + err.message);
+  }
+});
+
+document.getElementById('btn-game-stop').addEventListener('click', async () => {
+  const ok = await confirmDangerAction('STOP', 'Stopping the game disables territory captures.');
+  if (!ok) return;
+  try {
+    await setGameStatus('stopped');
+  } catch (err) {
+    alert('Error stopping game: ' + err.message);
+  }
+});
+
+document.getElementById('btn-game-reset').addEventListener('click', async () => {
+  const ok = await confirmDangerAction('RESET', 'Reset clears positions, scores, and territory ownership.');
+  if (!ok) return;
+  try {
+    await resetGame();
+    selectGeofence(null);
+  } catch (err) {
+    alert('Error resetting game: ' + err.message);
+  }
+});
 
 // ── Tracker markers ────────────────────────────────────────────────────────────
 function fmtTime(ts) {
@@ -361,8 +492,11 @@ function connect() {
       case 'snapshot':
         // Clear & reload
         Object.keys(gfLayers).forEach(n => { drawnItems.removeLayer(gfLayers[n]); delete gfLayers[n]; });
+        clearAllMarkers();
         (msg.geofences || []).forEach(gf => addGfLayer(gf));
+        maybeFitMapToPolygonsOnce();
         Object.values(msg.positions || {}).forEach(p => upsertMarker(p));
+        setGameStatusUI(msg.game?.status || 'unknown');
         break;
 
       case 'position':
@@ -382,6 +516,10 @@ function connect() {
           const c = msg.color;
           gfLayers[msg.geofenceName].setStyle({ color: c, fillColor: c });
         }
+        break;
+
+      case 'game_status':
+        setGameStatusUI(msg.status || 'unknown');
         break;
     }
   };
