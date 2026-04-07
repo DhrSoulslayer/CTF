@@ -198,13 +198,16 @@ function removeGfLayer(name) {
 }
 
 // ── Convert Leaflet layer → GeoJSON Polygon ───────────────────────────────────
+function isRingClosed(coords) {
+  if (coords.length < 2) return false;
+  const first = coords[0], last = coords[coords.length - 1];
+  return first[0] === last[0] && first[1] === last[1];
+}
+
 function layerToGeojson(layer) {
   const latlngs = layer.getLatLngs()[0];
   const coords  = latlngs.map(ll => [ll.lng, ll.lat]);
-  // Close ring
-  if (coords.length && (coords[0][0] !== coords[coords.length-1][0] || coords[0][1] !== coords[coords.length-1][1])) {
-    coords.push(coords[0]);
-  }
+  if (!isRingClosed(coords)) coords.push(coords[0]);
   return { type: 'Polygon', coordinates: [coords] };
 }
 
@@ -301,10 +304,21 @@ function fmtTime(ts) {
 
 function upsertMarker(pos) {
   const { deviceId, name, lat, lon, timestamp } = pos;
-  const label = `${name}<br/><small>${fmtTime(timestamp)}</small>`;
+
+  // Build popup with DOM methods to avoid XSS with user-supplied device name
+  function makePopup() {
+    const div   = document.createElement('div');
+    const small = document.createElement('small');
+    div.textContent = name;
+    small.textContent = fmtTime(timestamp);
+    div.appendChild(document.createElement('br'));
+    div.appendChild(small);
+    return div;
+  }
+
   if (markerLayers[deviceId]) {
     markerLayers[deviceId].setLatLng([lat, lon]);
-    markerLayers[deviceId].setPopupContent(label);
+    markerLayers[deviceId].setPopupContent(makePopup());
     return;
   }
   const icon = L.divIcon({
@@ -313,7 +327,7 @@ function upsertMarker(pos) {
   });
   const marker = L.marker([lat, lon], { icon })
     .addTo(map)
-    .bindPopup(label)
+    .bindPopup(makePopup())
     .bindTooltip(name, { permanent: true, offset: [8, 0] });
   markerLayers[deviceId] = marker;
 }

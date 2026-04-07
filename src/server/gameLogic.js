@@ -32,6 +32,8 @@ try {
 // Key: "<deviceId>::<geofenceName>"  →  { enteredAt: ms|null, triggered: bool }
 const geofenceState = {};
 
+// Small epsilon prevents division by zero when two ring vertices share the same latitude.
+const EPSILON = 1e-12;
 // ── Point-in-polygon (ray-casting, GeoJSON coords: [lon, lat]) ────────────────
 function pointInPolygon(lat, lon, coordinates) {
   const ring = coordinates[0]; // outer ring only
@@ -41,7 +43,7 @@ function pointInPolygon(lat, lon, coordinates) {
     const xj = ring[j][0], yj = ring[j][1];
     const intersect =
       yi > lat !== yj > lat &&
-      lon < ((xj - xi) * (lat - yi)) / (yj - yi || 1e-12) + xi;
+      lon < ((xj - xi) * (lat - yi)) / (yj - yi || EPSILON) + xi;
     if (intersect) inside = !inside;
   }
   return inside;

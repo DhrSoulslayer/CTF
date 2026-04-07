@@ -101,11 +101,16 @@ function updateScoreboard() {
   const pills = document.getElementById('pills');
   pills.innerHTML = '';
   TEAMS.forEach(t => {
-    const pill = document.createElement('span');
+    const pill  = document.createElement('span');
+    const score = document.createElement('span');
     pill.className = 'pill';
     pill.style.background = teamColor(t);
     pill.style.color = ['Charlie','Juliet','India'].includes(t) ? '#000' : '#fff';
-    pill.innerHTML = `${t} <span class="score">${scores[t] || 0}</span>`;
+    // t comes from the hardcoded TEAMS constant; score is a server-returned number
+    pill.textContent = t + '\u00a0';
+    score.className = 'score';
+    score.textContent = String(scores[t] || 0);
+    pill.appendChild(score);
     pills.appendChild(pill);
   });
 }
@@ -114,9 +119,16 @@ function updateOwnersTable() {
   const tbody = document.getElementById('owners-body');
   tbody.innerHTML = '';
   Object.entries(owners).sort((a,b) => a[0].localeCompare(b[0])).forEach(([name, owner]) => {
-    const tr = document.createElement('tr');
+    const tr  = document.createElement('tr');
+    const td1 = document.createElement('td');
+    const td2 = document.createElement('td');
     const color = teamColor(owner);
-    tr.innerHTML = `<td>${name}</td><td style="background:${color};color:#000;font-weight:bold">${owner}</td>`;
+    // Use textContent to avoid XSS for user-supplied geofence name / owner values
+    td1.textContent = name;
+    td2.textContent = owner;
+    td2.style.cssText = `background:${color};color:#000;font-weight:bold`;
+    tr.appendChild(td1);
+    tr.appendChild(td2);
     tbody.appendChild(tr);
   });
 }
@@ -150,11 +162,21 @@ function fmtTime(ts) {
 
 function upsertMarker(pos) {
   const { deviceId, name, lat, lon, timestamp } = pos;
-  const label = `${name}<br/><small>${fmtTime(timestamp)}</small>`;
+
+  // Build popup using DOM to avoid XSS with user-supplied device name
+  function makePopup() {
+    const div   = document.createElement('div');
+    const small = document.createElement('small');
+    div.textContent = name;
+    small.textContent = fmtTime(timestamp);
+    div.appendChild(document.createElement('br'));
+    div.appendChild(small);
+    return div;
+  }
 
   if (markerLayers[deviceId]) {
     markerLayers[deviceId].setLatLng([lat, lon]);
-    markerLayers[deviceId].setPopupContent(label);
+    markerLayers[deviceId].setPopupContent(makePopup());
     return;
   }
 
@@ -164,7 +186,7 @@ function upsertMarker(pos) {
   });
   const marker = L.marker([lat, lon], { icon })
     .addTo(map)
-    .bindPopup(label)
+    .bindPopup(makePopup())
     .bindTooltip(name, { permanent: true, offset: [8, 0] });
   markerLayers[deviceId] = marker;
 }
@@ -252,7 +274,7 @@ connect();
 document.getElementById('owners-toggle').addEventListener('click', function() {
   const wrap = document.getElementById('owners-wrap');
   const open = wrap.classList.toggle('open');
-  this.textContent = (open ? '▼' : '▶') + ' Show territory owners';
+  this.textContent = (open ? '▼ Hide' : '▶ Show') + ' territory owners';
 });
 </script>
 </body>
