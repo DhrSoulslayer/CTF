@@ -45,7 +45,33 @@ db.exec(`
     status  TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS occupancy_totals (
+    team      TEXT PRIMARY KEY,
+    total_ms  INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS occupancy_by_geofence (
+    geofence  TEXT NOT NULL,
+    team      TEXT NOT NULL,
+    total_ms  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (geofence, team)
+  );
 `);
+
+function ensureColumn(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some(c => c.name === column)) {
+    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+  }
+}
+
+ensureColumn('geofences', 'owner_since', "TEXT NOT NULL DEFAULT ''");
+db.prepare(`
+  UPDATE geofences
+  SET owner_since = COALESCE(NULLIF(owner_since, ''), updated_at, ?)
+  WHERE owner_since IS NULL OR owner_since = ''
+`).run(new Date().toISOString());
 
 db.prepare(`
   INSERT INTO game_state (id, status, updated_at)
@@ -59,6 +85,7 @@ module.exports = {
       name: row.name,
       geojson: JSON.parse(row.geojson),
       owner: row.owner,
+      ownerSince: row.owner_since,
       updatedAt: row.updated_at,
     }));
   },
@@ -70,28 +97,71 @@ module.exports = {
       name: row.name,
       geojson: JSON.parse(row.geojson),
       owner: row.owner,
+      ownerSince: row.owner_since,
       updatedAt: row.updated_at,
     };
   },
 
   upsertGeofence(name, geojson) {
+    const now = new Date().toISOString();
     db.prepare(`
-      INSERT INTO geofences (name, geojson, owner, updated_at)
-      VALUES (?, ?, 'Neutral', ?)
+      INSERT INTO geofences (name, geojson, owner, owner_since, updated_at)
+      VALUES (?, ?, 'Neutral', ?, ?)
       ON CONFLICT(name) DO UPDATE SET
         geojson    = excluded.geojson,
         updated_at = excluded.updated_at
-    `).run(name, JSON.stringify(geojson), new Date().toISOString());
+    `).run(name, JSON.stringify(geojson), now, now);
   },
 
   updateGeofenceOwner(name, owner) {
     db.prepare(
-      'UPDATE geofences SET owner = ?, updated_at = ? WHERE name = ?'
-    ).run(owner, new Date().toISOString(), name);
+      'UPDATE geofences SET owner = ?, owner_since = ?, updated_at = ? WHERE name = ?'
+    ).run(owner, new Date().toISOString(), new Date().toISOString(), name);
+  },
+
+  transferGeofenceOwner(name, nextOwner, atIso) {
+    const nowIso = atIso || new Date().toISOString();
+    const nowMs = Date.parse(nowIso);
+    const row = db.prepare('SELECT owner, owner_since FROM geofences WHERE name = ?').get(name);
+    if (!row) return null;
+
+    const prevOwner = row.owner;
+    if (prevOwner === nextOwner) {
+      return { changed: false, prevOwner, nextOwner };
+    }
+
+    const prevSinceMs = Date.parse(row.owner_since || '');
+    const heldMs = Number.isFinite(prevSinceMs) && Number.isFinite(nowMs)
+      ? Math.max(0, nowMs - prevSinceMs)
+      : 0;
+
+    const tx = db.transaction(() => {
+      if (heldMs > 0) {
+        db.prepare(`
+          INSERT INTO occupancy_totals (team, total_ms) VALUES (?, ?)
+          ON CONFLICT(team) DO UPDATE SET total_ms = total_ms + excluded.total_ms
+        `).run(prevOwner, heldMs);
+
+        db.prepare(`
+          INSERT INTO occupancy_by_geofence (geofence, team, total_ms) VALUES (?, ?, ?)
+          ON CONFLICT(geofence, team) DO UPDATE SET total_ms = total_ms + excluded.total_ms
+        `).run(name, prevOwner, heldMs);
+      }
+
+      db.prepare(
+        'UPDATE geofences SET owner = ?, owner_since = ?, updated_at = ? WHERE name = ?'
+      ).run(nextOwner, nowIso, nowIso, name);
+    });
+    tx();
+
+    return { changed: true, prevOwner, nextOwner, heldMs };
   },
 
   deleteGeofence(name) {
-    db.prepare('DELETE FROM geofences WHERE name = ?').run(name);
+    db.transaction(() => {
+      db.prepare('DELETE FROM geofences WHERE name = ?').run(name);
+      db.prepare('DELETE FROM occupancy_by_geofence WHERE geofence = ?').run(name);
+    })();
   },
 
   renameGeofence(oldName, newName, newGeojson) {
@@ -101,9 +171,18 @@ module.exports = {
     db.transaction(() => {
       db.prepare('DELETE FROM geofences WHERE name = ?').run(oldName);
       db.prepare(`
-        INSERT INTO geofences (name, geojson, owner, updated_at)
-        VALUES (?, ?, ?, ?)
-      `).run(newName, geojson, old.owner, new Date().toISOString());
+        INSERT INTO geofences (name, geojson, owner, owner_since, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(newName, geojson, old.owner, old.owner_since, new Date().toISOString());
+
+      const rows = db.prepare('SELECT team, total_ms FROM occupancy_by_geofence WHERE geofence = ?').all(oldName);
+      rows.forEach(row => {
+        db.prepare(`
+          INSERT INTO occupancy_by_geofence (geofence, team, total_ms) VALUES (?, ?, ?)
+          ON CONFLICT(geofence, team) DO UPDATE SET total_ms = total_ms + excluded.total_ms
+        `).run(newName, row.team, row.total_ms);
+      });
+      db.prepare('DELETE FROM occupancy_by_geofence WHERE geofence = ?').run(oldName);
     })();
   },
 
@@ -150,6 +229,46 @@ module.exports = {
     }, {});
   },
 
+  getOccupancyTotals(nowIso) {
+    const nowMs = Date.parse(nowIso || new Date().toISOString());
+    const totals = db.prepare('SELECT team, total_ms FROM occupancy_totals').all().reduce((acc, row) => {
+      acc[row.team] = Number(row.total_ms) || 0;
+      return acc;
+    }, {});
+
+    const activeOwners = db.prepare('SELECT owner, owner_since FROM geofences').all();
+    activeOwners.forEach(row => {
+      const sinceMs = Date.parse(row.owner_since || '');
+      if (!Number.isFinite(sinceMs) || !Number.isFinite(nowMs)) return;
+      const heldMs = Math.max(0, nowMs - sinceMs);
+      totals[row.owner] = (totals[row.owner] || 0) + heldMs;
+    });
+
+    return totals;
+  },
+
+  getOccupancyByGeofence(nowIso) {
+    const nowMs = Date.parse(nowIso || new Date().toISOString());
+    const byGeofence = {};
+
+    const persisted = db.prepare('SELECT geofence, team, total_ms FROM occupancy_by_geofence').all();
+    persisted.forEach(row => {
+      if (!byGeofence[row.geofence]) byGeofence[row.geofence] = {};
+      byGeofence[row.geofence][row.team] = Number(row.total_ms) || 0;
+    });
+
+    const activeOwners = db.prepare('SELECT name, owner, owner_since FROM geofences').all();
+    activeOwners.forEach(row => {
+      const sinceMs = Date.parse(row.owner_since || '');
+      if (!Number.isFinite(sinceMs) || !Number.isFinite(nowMs)) return;
+      const heldMs = Math.max(0, nowMs - sinceMs);
+      if (!byGeofence[row.name]) byGeofence[row.name] = {};
+      byGeofence[row.name][row.owner] = (byGeofence[row.name][row.owner] || 0) + heldMs;
+    });
+
+    return byGeofence;
+  },
+
   incrementScore(team) {
     db.prepare(`
       INSERT INTO scores (team, score) VALUES (?, 1)
@@ -173,7 +292,9 @@ module.exports = {
     db.transaction(() => {
       db.prepare('DELETE FROM positions').run();
       db.prepare('DELETE FROM scores').run();
-      db.prepare("UPDATE geofences SET owner = 'Neutral', updated_at = ?").run(now);
+      db.prepare('DELETE FROM occupancy_totals').run();
+      db.prepare('DELETE FROM occupancy_by_geofence').run();
+      db.prepare("UPDATE geofences SET owner = 'Neutral', owner_since = ?, updated_at = ?").run(now, now);
     })();
   },
 
@@ -192,6 +313,24 @@ module.exports = {
         `).run(newName, oldScore.score);
         db.prepare('DELETE FROM scores WHERE team = ?').run(oldName);
       }
+
+      const oldOccupancy = db.prepare('SELECT total_ms FROM occupancy_totals WHERE team = ?').get(oldName);
+      if (oldOccupancy) {
+        db.prepare(`
+          INSERT INTO occupancy_totals (team, total_ms) VALUES (?, ?)
+          ON CONFLICT(team) DO UPDATE SET total_ms = total_ms + excluded.total_ms
+        `).run(newName, oldOccupancy.total_ms);
+        db.prepare('DELETE FROM occupancy_totals WHERE team = ?').run(oldName);
+      }
+
+      const geofenceRows = db.prepare('SELECT geofence, total_ms FROM occupancy_by_geofence WHERE team = ?').all(oldName);
+      geofenceRows.forEach(row => {
+        db.prepare(`
+          INSERT INTO occupancy_by_geofence (geofence, team, total_ms) VALUES (?, ?, ?)
+          ON CONFLICT(geofence, team) DO UPDATE SET total_ms = total_ms + excluded.total_ms
+        `).run(row.geofence, newName, row.total_ms);
+      });
+      db.prepare('DELETE FROM occupancy_by_geofence WHERE team = ?').run(oldName);
     })();
   },
 };

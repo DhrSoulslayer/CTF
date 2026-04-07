@@ -36,6 +36,8 @@ function buildSnapshot() {
     positions: db.getAllPositions(),
     scores:    db.getAllScores(),
     owners:    db.getAllOwners(),
+    occupancyMs: db.getOccupancyTotals(),
+    occupancyByTerritory: db.getOccupancyByGeofence(),
     teams:     gameLogic.getTeamConfig().teams,
     teamColors: gameLogic.getTeamColors(),
     game:      { status: gameLogic.getGameStatus() },
@@ -132,7 +134,12 @@ app.put('/api/admin/teams', adminAuth, requireAdminPageRequest, (req, res) => {
 });
 
 app.get('/api/admin/scores', adminAuth, requireAdminPageRequest, (_req, res) => {
-  res.json({ scores: db.getAllScores(), owners: db.getAllOwners() });
+  res.json({
+    scores: db.getAllScores(),
+    owners: db.getAllOwners(),
+    occupancyMs: db.getOccupancyTotals(),
+    occupancyByTerritory: db.getOccupancyByGeofence(),
+  });
 });
 
 app.put('/api/game/status', adminAuth, requireAdminPageRequest, (req, res) => {

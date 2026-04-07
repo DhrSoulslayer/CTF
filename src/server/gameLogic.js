@@ -236,7 +236,7 @@ function handlePosition(payload, broadcast) {
 
         // Apply capture
         const prevOwner = geofence.owner;
-        db.updateGeofenceOwner(geofence.name, team);
+        db.transferGeofenceOwner(geofence.name, team, new Date(now).toISOString());
         if (prevOwner !== team) {
           db.incrementScore(team);
         }
@@ -251,6 +251,8 @@ function handlePosition(payload, broadcast) {
           deviceName:   name,
           scores:       db.getAllScores(),
           owners:       db.getAllOwners(),
+          occupancyMs:  db.getOccupancyTotals(),
+          occupancyByTerritory: db.getOccupancyByGeofence(),
         });
       }
     } else {

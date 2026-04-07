@@ -205,12 +205,16 @@
         <button class="btn-info" id="btn-scores-refresh">↺ Refresh scores</button>
       </div>
       <table class="table">
-        <thead><tr><th>Team</th><th>Score</th></tr></thead>
+        <thead><tr><th>Team</th><th>Score</th><th>Bezettingstijd</th></tr></thead>
         <tbody id="scores-body"></tbody>
       </table>
       <table class="table">
         <thead><tr><th>Territory</th><th>Owner</th></tr></thead>
         <tbody id="owners-body-admin"></tbody>
+      </table>
+      <table class="table">
+        <thead id="occupancy-head-admin"></thead>
+        <tbody id="occupancy-body-admin"></tbody>
       </table>
     </section>
 
@@ -459,15 +463,26 @@ function showPanel(panelId) {
   if (panelId === 'teams') loadTeamsEditor();
 }
 
-function renderScoresPanel(scores = {}, owners = {}) {
+function formatDuration(ms) {
+  const totalSeconds = Math.floor(Math.max(0, Number(ms) || 0) / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function renderScoresPanel(scores = {}, owners = {}, occupancyMs = {}, occupancyByTerritory = {}) {
   const scoreBody = document.getElementById('scores-body');
   const ownersBody = document.getElementById('owners-body-admin');
+  const occupancyHead = document.getElementById('occupancy-head-admin');
+  const occupancyBody = document.getElementById('occupancy-body-admin');
 
   const sortedTeams = teams.slice().sort((a, b) => (scores[b.name] || 0) - (scores[a.name] || 0));
   scoreBody.innerHTML = sortedTeams.map(t => `
     <tr>
       <td><span class="swatch" style="background:${teamColor(t.name)}"></span>${esc(t.name)}</td>
       <td>${scores[t.name] || 0}</td>
+      <td class="mono">${formatDuration(occupancyMs[t.name] || 0)}</td>
     </tr>
   `).join('');
 
@@ -479,12 +494,36 @@ function renderScoresPanel(scores = {}, owners = {}) {
         <td><span class="swatch" style="background:${teamColor(owner)}"></span>${esc(owner)}</td>
       </tr>
     `).join('');
+
+  const teamNames = teams.map(t => t.name);
+  occupancyHead.innerHTML = `
+    <tr>
+      <th>Territory</th>
+      ${teamNames.map(name => `<th>${esc(name)}</th>`).join('')}
+    </tr>
+  `;
+
+  const territories = Array.from(new Set([
+    ...Object.keys(owners || {}),
+    ...Object.keys(occupancyByTerritory || {}),
+  ])).sort((a, b) => a.localeCompare(b));
+
+  occupancyBody.innerHTML = territories.map(territory => {
+    const perTeam = occupancyByTerritory[territory] || {};
+    const cells = teamNames.map(name => `<td class="mono">${formatDuration(perTeam[name] || 0)}</td>`).join('');
+    return `<tr><td>${esc(territory)}</td>${cells}</tr>`;
+  }).join('');
 }
 
 async function refreshScoresPanel() {
   try {
     const data = await (await fetch('/api/admin/scores')).json();
-    renderScoresPanel(data.scores || {}, data.owners || {});
+    renderScoresPanel(
+      data.scores || {},
+      data.owners || {},
+      data.occupancyMs || {},
+      data.occupancyByTerritory || {}
+    );
   } catch (err) {
     alert('Error loading scores: ' + err.message);
   }
@@ -795,7 +834,12 @@ function connect() {
         maybeFitMapToPolygonsOnce();
         Object.values(msg.positions || {}).forEach(p => upsertMarker(p));
         setGameStatusUI(msg.game?.status || 'unknown');
-        renderScoresPanel(msg.scores || {}, msg.owners || {});
+        renderScoresPanel(
+          msg.scores || {},
+          msg.owners || {},
+          msg.occupancyMs || {},
+          msg.occupancyByTerritory || {}
+        );
         break;
 
       case 'position':
@@ -815,7 +859,12 @@ function connect() {
           const c = msg.color;
           gfLayers[msg.geofenceName].setStyle({ color: c, fillColor: c });
         }
-        renderScoresPanel(msg.scores || {}, msg.owners || {});
+        renderScoresPanel(
+          msg.scores || {},
+          msg.owners || {},
+          msg.occupancyMs || {},
+          msg.occupancyByTerritory || {}
+        );
         break;
 
       case 'game_status':
