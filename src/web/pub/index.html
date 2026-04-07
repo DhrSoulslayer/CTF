@@ -90,13 +90,14 @@ const DEFAULT_TEAM_COLORS = {
   India:   '#fabed4',
   Neutral: '#808080',
 };
+const DEFAULT_MAP_VIEW = { lat: 52.1326, lon: 5.2913, zoom: 8 };
 let teamColors = { ...DEFAULT_TEAM_COLORS };
 let teams = Object.entries(DEFAULT_TEAM_COLORS)
   .filter(([name]) => name !== 'Neutral')
   .map(([name, color]) => ({ name, color }));
 
 // ── Map ────────────────────────────────────────────────────────────────────────
-const map = L.map('map').setView([52.15149, 6.21876], 14);
+const map = L.map('map').setView([DEFAULT_MAP_VIEW.lat, DEFAULT_MAP_VIEW.lon], DEFAULT_MAP_VIEW.zoom);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '© OpenStreetMap',
   maxZoom: 19,
@@ -110,6 +111,7 @@ let   owners = {};
 let   gameStatus = 'unknown';
 const FIRST_OPEN_FIT_KEY = 'ctf-fit-polygons-once-v1';
 let   hasAutoFitted = false;
+let   mapDefaultView = { ...DEFAULT_MAP_VIEW };
 
 // ── UI helpers ─────────────────────────────────────────────────────────────────
 function teamColor(team) { return teamColors[team] || teamColors.Neutral || '#808080'; }
@@ -203,9 +205,22 @@ function maybeFitMapToPolygonsOnce() {
   hasAutoFitted = true;
 }
 
+function applyMapDefaultView(view) {
+  if (!view) return;
+  const lat = Number(view.lat);
+  const lon = Number(view.lon);
+  const zoom = Number(view.zoom);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(zoom)) return;
+  mapDefaultView = { lat, lon, zoom };
+  map.setView([lat, lon], zoom);
+}
+
 function fitMapToAllPolygons() {
   const layers = Object.values(geofenceLayers);
-  if (!layers.length) return;
+  if (!layers.length) {
+    map.setView([mapDefaultView.lat, mapDefaultView.lon], mapDefaultView.zoom);
+    return;
+  }
   const bounds = L.featureGroup(layers).getBounds();
   if (!bounds.isValid()) return;
   map.fitBounds(bounds.pad(0.15));
@@ -259,6 +274,7 @@ function applySnapshot(data) {
   owners = data.owners || {};
   teams = Array.isArray(data.teams) && data.teams.length ? data.teams : teams;
   teamColors = { ...DEFAULT_TEAM_COLORS, ...(data.teamColors || {}) };
+  applyMapDefaultView(data.mapDefault || mapDefaultView);
   applyGameStatus(data.game?.status || 'unknown');
 
   (data.geofences || []).forEach(gf => upsertGeofence(gf));
@@ -329,6 +345,10 @@ function connect() {
 
       case 'game_status':
         applyGameStatus(msg.status || 'unknown');
+        break;
+
+      case 'settings_update':
+        applyMapDefaultView(msg.mapDefault || mapDefaultView);
         break;
     }
   };

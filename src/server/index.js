@@ -38,6 +38,7 @@ function buildSnapshot() {
     owners:    db.getAllOwners(),
     occupancyMs: db.getOccupancyTotals(),
     occupancyByTerritory: db.getOccupancyByGeofence(),
+    mapDefault: db.getMapDefaultView(),
     teams:     gameLogic.getTeamConfig().teams,
     teamColors: gameLogic.getTeamColors(),
     game:      { status: gameLogic.getGameStatus() },
@@ -140,6 +141,20 @@ app.get('/api/admin/scores', adminAuth, requireAdminPageRequest, (_req, res) => 
     occupancyMs: db.getOccupancyTotals(),
     occupancyByTerritory: db.getOccupancyByGeofence(),
   });
+});
+
+app.get('/api/admin/settings', adminAuth, requireAdminPageRequest, (_req, res) => {
+  res.json({ mapDefault: db.getMapDefaultView() });
+});
+
+app.put('/api/admin/settings', adminAuth, requireAdminPageRequest, (req, res) => {
+  try {
+    const mapDefault = db.setMapDefaultView(req.body?.mapDefault || {});
+    broadcast({ type: 'settings_update', mapDefault });
+    res.json({ mapDefault });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'invalid settings payload' });
+  }
 });
 
 app.put('/api/game/status', adminAuth, requireAdminPageRequest, (req, res) => {

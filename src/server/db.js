@@ -13,6 +13,7 @@ if (!fs.existsSync(dbDir)) {
 }
 
 const db = new Database(DB_PATH);
+const DEFAULT_MAP_VIEW = { lat: 52.1326, lon: 5.2913, zoom: 8 };
 
 // Enable WAL for better concurrent read performance
 db.pragma('journal_mode = WAL');
@@ -57,6 +58,11 @@ db.exec(`
     total_ms  INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (geofence, team)
   );
+
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key    TEXT PRIMARY KEY,
+    value  TEXT NOT NULL
+  );
 `);
 
 function ensureColumn(table, column, definition) {
@@ -79,7 +85,53 @@ db.prepare(`
   ON CONFLICT(id) DO NOTHING
 `).run(new Date().toISOString());
 
+db.prepare(`
+  INSERT INTO app_settings (key, value)
+  VALUES ('map_default_view', ?)
+  ON CONFLICT(key) DO NOTHING
+`).run(JSON.stringify(DEFAULT_MAP_VIEW));
+
+function normalizeMapView(input) {
+  const lat = Number(input?.lat);
+  const lon = Number(input?.lon);
+  const zoom = Number(input?.zoom);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+    throw new Error('invalid map view: lat must be between -90 and 90');
+  }
+  if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
+    throw new Error('invalid map view: lon must be between -180 and 180');
+  }
+  if (!Number.isFinite(zoom) || zoom < 1 || zoom > 19) {
+    throw new Error('invalid map view: zoom must be between 1 and 19');
+  }
+  return {
+    lat: Number(lat.toFixed(6)),
+    lon: Number(lon.toFixed(6)),
+    zoom: Number(zoom.toFixed(2)),
+  };
+}
+
 module.exports = {
+  getMapDefaultView() {
+    const row = db.prepare("SELECT value FROM app_settings WHERE key = 'map_default_view'").get();
+    if (!row?.value) return { ...DEFAULT_MAP_VIEW };
+    try {
+      return normalizeMapView(JSON.parse(row.value));
+    } catch {
+      return { ...DEFAULT_MAP_VIEW };
+    }
+  },
+
+  setMapDefaultView(view) {
+    const normalized = normalizeMapView(view);
+    db.prepare(`
+      INSERT INTO app_settings (key, value)
+      VALUES ('map_default_view', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(JSON.stringify(normalized));
+    return normalized;
+  },
+
   getAllGeofences() {
     return db.prepare('SELECT * FROM geofences ORDER BY name').all().map(row => ({
       name: row.name,

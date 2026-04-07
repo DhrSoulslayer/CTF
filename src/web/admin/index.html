@@ -183,6 +183,9 @@
       <div id="toolbar">
         <label>Selected territory:</label>
         <button class="btn-info" id="btn-home">⌂ Home</button>
+        <button class="btn-info" id="btn-map-default-jump">⌖ Default</button>
+        <button class="btn-warn" id="btn-map-default-save">Save view as default</button>
+        <span id="map-default-info" style="color:#9fd3ff;font-size:0.82rem">Default: --</span>
         <span id="selected-name" style="color:#ff0;font-weight:bold;font-size:0.85rem">(none)</span>
         <span id="cursor-coords" style="color:#9fd3ff;font-size:0.85rem">Cursor: --, --</span>
         <button class="btn-warn" id="btn-rename" disabled>Rename</button>
@@ -250,6 +253,7 @@ const DEFAULT_TEAM_COLORS = {
   Echo:    '#f58231', Foxtrot: '#911eb4', Juliet:  '#46f0f0', India:   '#fabed4',
   Neutral: '#808080',
 };
+const DEFAULT_MAP_VIEW = { lat: 52.1326, lon: 5.2913, zoom: 8 };
 let teamColors = { ...DEFAULT_TEAM_COLORS };
 let teams = Object.entries(DEFAULT_TEAM_COLORS)
   .filter(([name]) => name !== 'Neutral')
@@ -258,7 +262,7 @@ let teams = Object.entries(DEFAULT_TEAM_COLORS)
 function teamColor(team) { return teamColors[team] || teamColors.Neutral || '#808080'; }
 
 // ── Map ────────────────────────────────────────────────────────────────────────
-const map = L.map('map').setView([52.15149, 6.21876], 15);
+const map = L.map('map').setView([DEFAULT_MAP_VIEW.lat, DEFAULT_MAP_VIEW.lon], DEFAULT_MAP_VIEW.zoom);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '© OpenStreetMap', maxZoom: 19,
 }).addTo(map);
@@ -288,8 +292,29 @@ let   selectedName = null;
 let   gameStatus = 'unknown';
 const FIRST_OPEN_FIT_KEY = 'ctf-fit-polygons-once-v1';
 let   hasAutoFitted = false;
+let   hasAppliedServerMapDefault = false;
+let   mapDefaultView = { ...DEFAULT_MAP_VIEW };
 let teamRows = [];
 let deviceRows = [];
+
+function renderMapDefaultInfo() {
+  document.getElementById('map-default-info').textContent =
+    `Default: ${mapDefaultView.lat.toFixed(5)}, ${mapDefaultView.lon.toFixed(5)} (z${mapDefaultView.zoom.toFixed(2)})`;
+}
+
+function applyMapDefaultView(view, recenter = false) {
+  if (!view) return;
+  const lat = Number(view.lat);
+  const lon = Number(view.lon);
+  const zoom = Number(view.zoom);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(zoom)) return;
+  mapDefaultView = { lat, lon, zoom };
+  renderMapDefaultInfo();
+  if (recenter) {
+    map.setView([lat, lon], zoom);
+  }
+}
+renderMapDefaultInfo();
 
 // ── Modal helper ───────────────────────────────────────────────────────────────
 function promptModal(title, defaultVal = '', placeholder = 'Enter name…') {
@@ -374,7 +399,10 @@ function maybeFitMapToPolygonsOnce() {
 
 function fitMapToAllPolygons() {
   const layers = Object.values(gfLayers);
-  if (!layers.length) return;
+  if (!layers.length) {
+    map.setView([mapDefaultView.lat, mapDefaultView.lon], mapDefaultView.zoom);
+    return;
+  }
   const bounds = L.featureGroup(layers).getBounds();
   if (!bounds.isValid()) return;
   map.fitBounds(bounds.pad(0.15));
@@ -681,6 +709,22 @@ document.getElementById('btn-delete').addEventListener('click', async () => {
 
 document.getElementById('btn-refresh').addEventListener('click', loadGeofences);
 document.getElementById('btn-home').addEventListener('click', fitMapToAllPolygons);
+document.getElementById('btn-map-default-jump').addEventListener('click', () => {
+  map.setView([mapDefaultView.lat, mapDefaultView.lon], mapDefaultView.zoom);
+});
+document.getElementById('btn-map-default-save').addEventListener('click', async () => {
+  try {
+    const center = map.getCenter();
+    const zoom = map.getZoom();
+    const r = await apiPut('/api/admin/settings', {
+      mapDefault: { lat: center.lat, lon: center.lng, zoom },
+    });
+    applyMapDefaultView(r.mapDefault, false);
+    alert('Default kaartlocatie opgeslagen');
+  } catch (err) {
+    alert('Error saving default map view: ' + err.message);
+  }
+});
 document.getElementById('btn-scores-refresh').addEventListener('click', refreshScoresPanel);
 document.getElementById('menu-map').addEventListener('click', () => showPanel('map'));
 document.getElementById('menu-scores').addEventListener('click', () => showPanel('scores'));
@@ -830,6 +874,12 @@ function connect() {
         Object.keys(gfLayers).forEach(n => { drawnItems.removeLayer(gfLayers[n]); delete gfLayers[n]; });
         clearAllMarkers();
         setTeamsData(msg.teams, msg.teamColors);
+        if (!hasAppliedServerMapDefault) {
+          applyMapDefaultView(msg.mapDefault || mapDefaultView, true);
+          hasAppliedServerMapDefault = true;
+        } else {
+          applyMapDefaultView(msg.mapDefault || mapDefaultView, false);
+        }
         (msg.geofences || []).forEach(gf => addGfLayer(gf));
         maybeFitMapToPolygonsOnce();
         Object.values(msg.positions || {}).forEach(p => upsertMarker(p));
@@ -869,6 +919,10 @@ function connect() {
 
       case 'game_status':
         setGameStatusUI(msg.status || 'unknown');
+        break;
+
+      case 'settings_update':
+        applyMapDefaultView(msg.mapDefault || mapDefaultView, false);
         break;
     }
   };
