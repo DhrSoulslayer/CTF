@@ -28,6 +28,51 @@
     #status { font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; background: #888; margin-left: auto; }
     #status.ok { background: #2d9e2d; }
 
+    #main {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+    #sidebar {
+      width: 220px;
+      background: #0d2747;
+      border-right: 2px solid #16213e;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .menu-btn {
+      padding: 10px 12px;
+      border: 1px solid #345;
+      border-radius: 6px;
+      color: #e8f0ff;
+      background: #132e54;
+      text-align: left;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .menu-btn.active {
+      background: #4363d8;
+      border-color: #6c86f0;
+    }
+    #content {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel {
+      display: none;
+      height: 100%;
+      min-height: 0;
+    }
+    .panel.active {
+      display: flex;
+      flex-direction: column;
+    }
+
     #toolbar {
       padding: 6px 12px;
       background: #0f3460;
@@ -44,7 +89,39 @@
     .btn-info   { background: #4363d8; color: #fff; }
     .btn-warn   { background: #f58231; color: #fff; }
 
-    #map { flex: 1; }
+    #map { flex: 1; min-height: 300px; }
+
+    .panel-pad { padding: 14px; overflow: auto; }
+    .panel h2 { margin-bottom: 10px; font-size: 1rem; color: #dbe7ff; }
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin-bottom: 14px;
+    }
+    .table th, .table td { border: 1px solid #2e4264; padding: 6px 8px; }
+    .table th { background: #16213e; text-align: left; }
+    .mono { font-family: Menlo, Monaco, Consolas, monospace; }
+    .swatch {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      border: 1px solid rgba(255,255,255,0.4);
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    .row-actions { display: flex; gap: 8px; margin-bottom: 10px; }
+    .input {
+      width: 100%;
+      border: 1px solid #38537f;
+      border-radius: 4px;
+      padding: 5px 7px;
+      background: #101e38;
+      color: #eef;
+      font-size: 0.85rem;
+    }
+    .hint { color: #9fb6da; font-size: 0.78rem; margin-bottom: 10px; }
 
     /* Make Leaflet.draw icon-only controls readable with text labels */
     #map .leaflet-draw-toolbar a {
@@ -94,19 +171,60 @@
   <span id="status">connecting…</span>
 </div>
 
-<div id="toolbar">
-  <label>Selected territory:</label>
-  <button class="btn-info" id="btn-home">⌂ Home</button>
-  <span id="selected-name" style="color:#ff0;font-weight:bold;font-size:0.85rem">(none)</span>
-  <button class="btn-warn" id="btn-rename" disabled>Rename</button>
-  <button class="btn-danger" id="btn-delete" disabled>Delete</button>
-  <button class="btn-info" id="btn-refresh">↺ Refresh</button>
-  <span style="margin-left:12px;color:#aee;font-size:0.85rem">Game:</span>
-  <span id="game-status" style="font-weight:bold;font-size:0.85rem">unknown</span>
-  <button class="btn-info" id="btn-game-start">Start</button>
-  <button class="btn-warn" id="btn-game-pause">Pause</button>
-  <button class="btn-danger" id="btn-game-stop">Stop</button>
-  <button class="btn-danger" id="btn-game-reset">Reset</button>
+<div id="main">
+  <aside id="sidebar">
+    <button class="menu-btn active" id="menu-map">Kaart bewerken</button>
+    <button class="menu-btn" id="menu-scores">Scores</button>
+    <button class="menu-btn" id="menu-teams">Teams</button>
+  </aside>
+
+  <div id="content">
+    <section class="panel active" id="panel-map">
+      <div id="toolbar">
+        <label>Selected territory:</label>
+        <button class="btn-info" id="btn-home">⌂ Home</button>
+        <span id="selected-name" style="color:#ff0;font-weight:bold;font-size:0.85rem">(none)</span>
+        <span id="cursor-coords" style="color:#9fd3ff;font-size:0.85rem">Cursor: --, --</span>
+        <button class="btn-warn" id="btn-rename" disabled>Rename</button>
+        <button class="btn-danger" id="btn-delete" disabled>Delete</button>
+        <button class="btn-info" id="btn-refresh">↺ Refresh</button>
+        <span style="margin-left:12px;color:#aee;font-size:0.85rem">Game:</span>
+        <span id="game-status" style="font-weight:bold;font-size:0.85rem">unknown</span>
+        <button class="btn-info" id="btn-game-start">Start</button>
+        <button class="btn-warn" id="btn-game-pause">Pause</button>
+        <button class="btn-danger" id="btn-game-stop">Stop</button>
+        <button class="btn-danger" id="btn-game-reset">Reset</button>
+      </div>
+      <div id="map"></div>
+    </section>
+
+    <section class="panel panel-pad" id="panel-scores">
+      <h2>Live Scores</h2>
+      <p class="hint">Actuele teamscore en eigenaar per territory.</p>
+      <div class="row-actions">
+        <button class="btn-info" id="btn-scores-refresh">↺ Refresh scores</button>
+      </div>
+      <table class="table">
+        <thead><tr><th>Team</th><th>Score</th></tr></thead>
+        <tbody id="scores-body"></tbody>
+      </table>
+      <table class="table">
+        <thead><tr><th>Territory</th><th>Owner</th></tr></thead>
+        <tbody id="owners-body-admin"></tbody>
+      </table>
+    </section>
+
+    <section class="panel panel-pad" id="panel-teams">
+      <h2>Teams & Tracker IDs</h2>
+      <p class="hint">Pas teamnaam, kleur en tracker-ID mapping aan. Sla op om live toe te passen.</p>
+      <div class="row-actions">
+        <button class="btn-info" id="btn-team-add">+ Team</button>
+        <button class="btn-info" id="btn-device-add">+ Tracker ID</button>
+        <button class="btn-warn" id="btn-teams-save">Save</button>
+      </div>
+      <div id="teams-editor"></div>
+    </section>
+  </div>
 </div>
 
 <!-- Name prompt modal -->
@@ -121,16 +239,19 @@
   </div>
 </div>
 
-<div id="map"></div>
-
 <script>
 // ── Constants ──────────────────────────────────────────────────────────────────
-const TEAM_COLORS = {
+const DEFAULT_TEAM_COLORS = {
   Alfa:    '#e6194B', Bravo:   '#3cb44b', Charlie: '#ffe119', Delta:   '#4363d8',
   Echo:    '#f58231', Foxtrot: '#911eb4', Juliet:  '#46f0f0', India:   '#fabed4',
   Neutral: '#808080',
 };
-function teamColor(team) { return TEAM_COLORS[team] || TEAM_COLORS.Neutral; }
+let teamColors = { ...DEFAULT_TEAM_COLORS };
+let teams = Object.entries(DEFAULT_TEAM_COLORS)
+  .filter(([name]) => name !== 'Neutral')
+  .map(([name, color]) => ({ name, color }));
+
+function teamColor(team) { return teamColors[team] || teamColors.Neutral || '#808080'; }
 
 // ── Map ────────────────────────────────────────────────────────────────────────
 const map = L.map('map').setView([52.15149, 6.21876], 15);
@@ -163,6 +284,8 @@ let   selectedName = null;
 let   gameStatus = 'unknown';
 const FIRST_OPEN_FIT_KEY = 'ctf-fit-polygons-once-v1';
 let   hasAutoFitted = false;
+let teamRows = [];
+let deviceRows = [];
 
 // ── Modal helper ───────────────────────────────────────────────────────────────
 function promptModal(title, defaultVal = '', placeholder = 'Enter name…') {
@@ -315,6 +438,136 @@ async function confirmDangerAction(actionWord, impactText) {
   return text === actionWord;
 }
 
+function setTeamsData(nextTeams, nextColors) {
+  teams = Array.isArray(nextTeams) && nextTeams.length ? nextTeams : teams;
+  teamColors = { ...DEFAULT_TEAM_COLORS, ...(nextColors || {}) };
+}
+
+function showPanel(panelId) {
+  const panelMap = {
+    map: 'panel-map',
+    scores: 'panel-scores',
+    teams: 'panel-teams',
+  };
+  Object.values(panelMap).forEach(id => {
+    document.getElementById(id).classList.toggle('active', id === panelMap[panelId]);
+  });
+  document.getElementById('menu-map').classList.toggle('active', panelId === 'map');
+  document.getElementById('menu-scores').classList.toggle('active', panelId === 'scores');
+  document.getElementById('menu-teams').classList.toggle('active', panelId === 'teams');
+  if (panelId === 'scores') refreshScoresPanel();
+  if (panelId === 'teams') loadTeamsEditor();
+}
+
+function renderScoresPanel(scores = {}, owners = {}) {
+  const scoreBody = document.getElementById('scores-body');
+  const ownersBody = document.getElementById('owners-body-admin');
+
+  const sortedTeams = teams.slice().sort((a, b) => (scores[b.name] || 0) - (scores[a.name] || 0));
+  scoreBody.innerHTML = sortedTeams.map(t => `
+    <tr>
+      <td><span class="swatch" style="background:${teamColor(t.name)}"></span>${esc(t.name)}</td>
+      <td>${scores[t.name] || 0}</td>
+    </tr>
+  `).join('');
+
+  ownersBody.innerHTML = Object.entries(owners)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([territory, owner]) => `
+      <tr>
+        <td>${esc(territory)}</td>
+        <td><span class="swatch" style="background:${teamColor(owner)}"></span>${esc(owner)}</td>
+      </tr>
+    `).join('');
+}
+
+async function refreshScoresPanel() {
+  try {
+    const data = await (await fetch('/api/admin/scores')).json();
+    renderScoresPanel(data.scores || {}, data.owners || {});
+  } catch (err) {
+    alert('Error loading scores: ' + err.message);
+  }
+}
+
+function esc(str) {
+  return String(str)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+function renderTeamsEditor() {
+  const options = teamRows.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
+  const teamsRowsHtml = teamRows.map((t, idx) => `
+    <tr>
+      <td><input class="input" data-kind="team-name" data-idx="${idx}" value="${esc(t.name)}" /></td>
+      <td><input class="input mono" data-kind="team-color" data-idx="${idx}" value="${esc(t.color)}" /></td>
+      <td><span class="swatch" style="background:${esc(t.color)}"></span></td>
+      <td><button class="btn-danger" data-kind="team-del" data-idx="${idx}">Delete</button></td>
+    </tr>
+  `).join('');
+
+  const deviceRowsHtml = deviceRows.map((d, idx) => `
+    <tr>
+      <td><input class="input mono" data-kind="device-id" data-idx="${idx}" value="${esc(d.deviceId)}" /></td>
+      <td>
+        <select class="input" data-kind="device-team" data-idx="${idx}">
+          ${options.replace(`value="${esc(d.team)}"`, `value="${esc(d.team)}" selected`)}
+        </select>
+      </td>
+      <td><button class="btn-danger" data-kind="device-del" data-idx="${idx}">Delete</button></td>
+    </tr>
+  `).join('');
+
+  document.getElementById('teams-editor').innerHTML = `
+    <h3 style="margin:8px 0">Teams</h3>
+    <table class="table">
+      <thead><tr><th>Name</th><th>Color (#RRGGBB)</th><th>Preview</th><th></th></tr></thead>
+      <tbody>${teamsRowsHtml}</tbody>
+    </table>
+    <h3 style="margin:8px 0">Tracker ID mapping</h3>
+    <table class="table">
+      <thead><tr><th>Tracker uniqueId</th><th>Team</th><th></th></tr></thead>
+      <tbody>${deviceRowsHtml}</tbody>
+    </table>
+  `;
+}
+
+async function loadTeamsEditor() {
+  try {
+    const config = await (await fetch('/api/admin/teams')).json();
+    setTeamsData(config.teams, Object.fromEntries((config.teams || []).map(t => [t.name, t.color])));
+    teamRows = (config.teams || []).map(t => ({ originalName: t.name, name: t.name, color: t.color }));
+    deviceRows = Object.entries(config.devices || {}).map(([deviceId, team]) => ({ deviceId, team }));
+    renderTeamsEditor();
+  } catch (err) {
+    alert('Error loading team settings: ' + err.message);
+  }
+}
+
+async function saveTeamsEditor() {
+  const payload = {
+    teams: teamRows.map(t => ({ originalName: t.originalName, name: t.name, color: t.color })),
+    devices: deviceRows.reduce((acc, d) => {
+      if (d.deviceId && d.team) acc[d.deviceId] = d.team;
+      return acc;
+    }, {}),
+  };
+  try {
+    const config = await apiPut('/api/admin/teams', payload);
+    setTeamsData(config.teams, Object.fromEntries((config.teams || []).map(t => [t.name, t.color])));
+    teamRows = (config.teams || []).map(t => ({ originalName: t.name, name: t.name, color: t.color }));
+    deviceRows = Object.entries(config.devices || {}).map(([deviceId, team]) => ({ deviceId, team }));
+    renderTeamsEditor();
+    refreshScoresPanel();
+    alert('Teams saved');
+  } catch (err) {
+    alert('Error saving teams: ' + err.message);
+  }
+}
+
 // ── Load all geofences ─────────────────────────────────────────────────────────
 async function loadGeofences() {
   const list = await (await fetch('/api/geofences')).json();
@@ -389,6 +642,43 @@ document.getElementById('btn-delete').addEventListener('click', async () => {
 
 document.getElementById('btn-refresh').addEventListener('click', loadGeofences);
 document.getElementById('btn-home').addEventListener('click', fitMapToAllPolygons);
+document.getElementById('btn-scores-refresh').addEventListener('click', refreshScoresPanel);
+document.getElementById('menu-map').addEventListener('click', () => showPanel('map'));
+document.getElementById('menu-scores').addEventListener('click', () => showPanel('scores'));
+document.getElementById('menu-teams').addEventListener('click', () => showPanel('teams'));
+document.getElementById('btn-team-add').addEventListener('click', () => {
+  teamRows.push({ originalName: '', name: '', color: '#808080' });
+  renderTeamsEditor();
+});
+document.getElementById('btn-device-add').addEventListener('click', () => {
+  const firstTeam = teamRows[0]?.name || '';
+  deviceRows.push({ deviceId: '', team: firstTeam });
+  renderTeamsEditor();
+});
+document.getElementById('btn-teams-save').addEventListener('click', saveTeamsEditor);
+document.getElementById('teams-editor').addEventListener('input', e => {
+  const idx = Number(e.target.dataset.idx);
+  const kind = e.target.dataset.kind;
+  if (!Number.isInteger(idx)) return;
+  if (kind === 'team-name') teamRows[idx].name = e.target.value.trim();
+  if (kind === 'team-color') teamRows[idx].color = e.target.value.trim();
+  if (kind === 'device-id') deviceRows[idx].deviceId = e.target.value.trim();
+  if (kind === 'device-team') deviceRows[idx].team = e.target.value;
+});
+document.getElementById('teams-editor').addEventListener('change', e => {
+  const idx = Number(e.target.dataset.idx);
+  const kind = e.target.dataset.kind;
+  if (!Number.isInteger(idx)) return;
+  if (kind === 'device-team') deviceRows[idx].team = e.target.value;
+});
+document.getElementById('teams-editor').addEventListener('click', e => {
+  const idx = Number(e.target.dataset.idx);
+  const kind = e.target.dataset.kind;
+  if (!Number.isInteger(idx)) return;
+  if (kind === 'team-del') teamRows.splice(idx, 1);
+  if (kind === 'device-del') deviceRows.splice(idx, 1);
+  renderTeamsEditor();
+});
 
 document.getElementById('btn-game-start').addEventListener('click', async () => {
   try {
@@ -463,6 +753,13 @@ function upsertMarker(pos) {
   markerLayers[deviceId] = marker;
 }
 
+// ── Cursor coordinates ─────────────────────────────────────────────────────────
+const cursorCoordsEl = document.getElementById('cursor-coords');
+map.on('mousemove', e => {
+  const { lat, lng } = e.latlng;
+  cursorCoordsEl.textContent = `Cursor: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+});
+
 // ── WebSocket ──────────────────────────────────────────────────────────────────
 const statusEl = document.getElementById('status');
 let ws, reconnectTimer;
@@ -493,10 +790,12 @@ function connect() {
         // Clear & reload
         Object.keys(gfLayers).forEach(n => { drawnItems.removeLayer(gfLayers[n]); delete gfLayers[n]; });
         clearAllMarkers();
+        setTeamsData(msg.teams, msg.teamColors);
         (msg.geofences || []).forEach(gf => addGfLayer(gf));
         maybeFitMapToPolygonsOnce();
         Object.values(msg.positions || {}).forEach(p => upsertMarker(p));
         setGameStatusUI(msg.game?.status || 'unknown');
+        renderScoresPanel(msg.scores || {}, msg.owners || {});
         break;
 
       case 'position':
@@ -516,6 +815,7 @@ function connect() {
           const c = msg.color;
           gfLayers[msg.geofenceName].setStyle({ color: c, fillColor: c });
         }
+        renderScoresPanel(msg.scores || {}, msg.owners || {});
         break;
 
       case 'game_status':

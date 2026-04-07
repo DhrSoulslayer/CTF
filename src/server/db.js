@@ -176,4 +176,22 @@ module.exports = {
       db.prepare("UPDATE geofences SET owner = 'Neutral', updated_at = ?").run(now);
     })();
   },
+
+  renameTeamReferences(oldName, newName) {
+    if (!oldName || !newName || oldName === newName) return;
+    const now = new Date().toISOString();
+    db.transaction(() => {
+      db.prepare('UPDATE geofences SET owner = ?, updated_at = ? WHERE owner = ?')
+        .run(newName, now, oldName);
+
+      const oldScore = db.prepare('SELECT score FROM scores WHERE team = ?').get(oldName);
+      if (oldScore) {
+        db.prepare(`
+          INSERT INTO scores (team, score) VALUES (?, ?)
+          ON CONFLICT(team) DO UPDATE SET score = score + excluded.score
+        `).run(newName, oldScore.score);
+        db.prepare('DELETE FROM scores WHERE team = ?').run(oldName);
+      }
+    })();
+  },
 };

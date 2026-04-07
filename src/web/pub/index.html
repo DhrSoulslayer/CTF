@@ -78,7 +78,7 @@
 
 <script>
 // ── Constants ──────────────────────────────────────────────────────────────────
-const TEAM_COLORS = {
+const DEFAULT_TEAM_COLORS = {
   Alfa:    '#e6194B',
   Bravo:   '#3cb44b',
   Charlie: '#ffe119',
@@ -89,8 +89,10 @@ const TEAM_COLORS = {
   India:   '#fabed4',
   Neutral: '#808080',
 };
-
-const TEAMS = ['Alfa','Bravo','Charlie','Delta','Echo','Foxtrot','Juliet','India'];
+let teamColors = { ...DEFAULT_TEAM_COLORS };
+let teams = Object.entries(DEFAULT_TEAM_COLORS)
+  .filter(([name]) => name !== 'Neutral')
+  .map(([name, color]) => ({ name, color }));
 
 // ── Map ────────────────────────────────────────────────────────────────────────
 const map = L.map('map').setView([52.15149, 6.21876], 14);
@@ -109,12 +111,13 @@ const FIRST_OPEN_FIT_KEY = 'ctf-fit-polygons-once-v1';
 let   hasAutoFitted = false;
 
 // ── UI helpers ─────────────────────────────────────────────────────────────────
-function teamColor(team) { return TEAM_COLORS[team] || TEAM_COLORS.Neutral; }
+function teamColor(team) { return teamColors[team] || teamColors.Neutral || '#808080'; }
 
 function updateScoreboard() {
   const pills = document.getElementById('pills');
   pills.innerHTML = '';
-  TEAMS.forEach(t => {
+  teams.forEach(team => {
+    const t = team.name;
     const pill  = document.createElement('span');
     const score = document.createElement('span');
     pill.className = 'pill';
@@ -253,6 +256,8 @@ function applySnapshot(data) {
 
   scores = data.scores || {};
   owners = data.owners || {};
+  teams = Array.isArray(data.teams) && data.teams.length ? data.teams : teams;
+  teamColors = { ...DEFAULT_TEAM_COLORS, ...(data.teamColors || {}) };
   applyGameStatus(data.game?.status || 'unknown');
 
   (data.geofences || []).forEach(gf => upsertGeofence(gf));

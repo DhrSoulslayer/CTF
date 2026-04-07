@@ -36,6 +36,8 @@ function buildSnapshot() {
     positions: db.getAllPositions(),
     scores:    db.getAllScores(),
     owners:    db.getAllOwners(),
+    teams:     gameLogic.getTeamConfig().teams,
+    teamColors: gameLogic.getTeamColors(),
     game:      { status: gameLogic.getGameStatus() },
   };
 }
@@ -112,6 +114,25 @@ app.get('/api/state', (_req, res) => {
 
 app.get('/api/game', (_req, res) => {
   res.json({ status: gameLogic.getGameStatus() });
+});
+
+app.get('/api/admin/teams', adminAuth, requireAdminPageRequest, (_req, res) => {
+  res.json(gameLogic.getTeamConfig());
+});
+
+app.put('/api/admin/teams', adminAuth, requireAdminPageRequest, (req, res) => {
+  try {
+    const config = gameLogic.setTeamConfig(req.body || {});
+    const snapshot = buildSnapshot();
+    broadcast(snapshot);
+    res.json(config);
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'invalid team config' });
+  }
+});
+
+app.get('/api/admin/scores', adminAuth, requireAdminPageRequest, (_req, res) => {
+  res.json({ scores: db.getAllScores(), owners: db.getAllOwners() });
 });
 
 app.put('/api/game/status', adminAuth, requireAdminPageRequest, (req, res) => {
