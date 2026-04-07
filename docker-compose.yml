@@ -1,5 +1,6 @@
 services:
   ctf:
+    container_name: ctf
     build: .
     ports:
       - "3000:3000"
