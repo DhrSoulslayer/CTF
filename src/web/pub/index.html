@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CTF – Live Map</title>
+
+  <!-- Leaflet (served locally) -->
+  <link rel="stylesheet" href="/lib/leaflet.css" />
+  <script src="/lib/leaflet.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; display: flex; flex-direction: column; height: 100vh; background: #1a1a2e; color: #eee; }
+
+    /* ── Header / scoreboard ── */
+    #header {
+      padding: 8px 12px;
+      background: #16213e;
+      border-bottom: 2px solid #0f3460;
+      flex-shrink: 0;
+    }
+    #header h1 { font-size: 1.1rem; display: inline; margin-right: 12px; color: #e0e0e0; }
+    #pills { display: inline-flex; flex-wrap: wrap; gap: 6px; vertical-align: middle; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: bold;
+      border: 2px solid rgba(255,255,255,0.25); color: #000;
+    }
+    .pill .score { font-size: 1rem; }
+
+    /* owners toggle */
+    #owners-toggle {
+      display: block; margin-top: 6px; font-size: 0.75rem; color: #aaa;
+      cursor: pointer; text-decoration: underline; user-select: none;
+    }
+    #owners-wrap { margin-top: 6px; display: none; }
+    #owners-wrap.open { display: block; }
+    #owners-table { border-collapse: collapse; font-size: 0.75rem; width: 100%; }
+    #owners-table th, #owners-table td { border: 1px solid #333; padding: 3px 8px; }
+    #owners-table th { background: #0f3460; color: #ccc; }
+
+    /* status badge */
+    #status { float: right; font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; background: #888; }
+    #status.ok { background: #2d9e2d; }
+
+    /* ── Map ── */
+    #map { flex: 1; }
+  </style>
+</head>
+<body>
+
+<div id="header">
+  <span id="status">connecting…</span>
+  <h1>🚩 CTF Live</h1>
+  <div id="pills"></div>
+  <span id="owners-toggle">▶ Show territory owners</span>
+  <div id="owners-wrap">
+    <table id="owners-table">
+      <thead><tr><th>Territory</th><th>Owner</th></tr></thead>
+      <tbody id="owners-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────────────────────────
+const TEAM_COLORS = {
+  Alfa:    '#e6194B',
+  Bravo:   '#3cb44b',
+  Charlie: '#ffe119',
+  Delta:   '#4363d8',
+  Echo:    '#f58231',
+  Foxtrot: '#911eb4',
+  Juliet:  '#46f0f0',
+  India:   '#fabed4',
+  Neutral: '#808080',
+};
+
+const TEAMS = ['Alfa','Bravo','Charlie','Delta','Echo','Foxtrot','Juliet','India'];
+
+// ── Map ────────────────────────────────────────────────────────────────────────
+const map = L.map('map').setView([52.15149, 6.21876], 14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap',
+  maxZoom: 19,
+}).addTo(map);
+
+// ── State ──────────────────────────────────────────────────────────────────────
+const geofenceLayers = {};   // name → L.Polygon
+const markerLayers   = {};   // deviceId → L.Marker
+let   scores = {};
+let   owners = {};
+
+// ── UI helpers ─────────────────────────────────────────────────────────────────
+function teamColor(team) { return TEAM_COLORS[team] || TEAM_COLORS.Neutral; }
+
+function updateScoreboard() {
+  const pills = document.getElementById('pills');
+  pills.innerHTML = '';
+  TEAMS.forEach(t => {
+    const pill  = document.createElement('span');
+    const score = document.createElement('span');
+    pill.className = 'pill';
+    pill.style.background = teamColor(t);
+    pill.style.color = ['Charlie','Juliet','India'].includes(t) ? '#000' : '#fff';
+    // t comes from the hardcoded TEAMS constant; score is a server-returned number
+    pill.textContent = t + '\u00a0';
+    score.className = 'score';
+    score.textContent = String(scores[t] || 0);
+    pill.appendChild(score);
+    pills.appendChild(pill);
+  });
+}
+
+function updateOwnersTable() {
+  const tbody = document.getElementById('owners-body');
+  tbody.innerHTML = '';
+  Object.entries(owners).sort((a,b) => a[0].localeCompare(b[0])).forEach(([name, owner]) => {
+    const tr  = document.createElement('tr');
+    const td1 = document.createElement('td');
+    const td2 = document.createElement('td');
+    const color = teamColor(owner);
+    // Use textContent to avoid XSS for user-supplied geofence name / owner values
+    td1.textContent = name;
+    td2.textContent = owner;
+    td2.style.cssText = `background:${color};color:#000;font-weight:bold`;
+    tr.appendChild(td1);
+    tr.appendChild(td2);
+    tbody.appendChild(tr);
+  });
+}
+
+function upsertGeofence(gf) {
+  const color = teamColor(gf.owner);
+  const style = { color, fillColor: color, fillOpacity: 0.35, weight: 2 };
+
+  if (geofenceLayers[gf.name]) {
+    map.removeLayer(geofenceLayers[gf.name]);
+  }
+
+  // GeoJSON Polygon coordinates: [[[lon,lat],...]]  → Leaflet needs [lat,lon]
+  const latlngs = gf.geojson.coordinates[0].map(([lon, lat]) => [lat, lon]);
+  const poly = L.polygon(latlngs, style).addTo(map);
+  poly.bindTooltip(gf.name, { permanent: true, direction: 'center', className: 'gf-label' });
+  geofenceLayers[gf.name] = poly;
+}
+
+function removeGeofence(name) {
+  if (geofenceLayers[name]) {
+    map.removeLayer(geofenceLayers[name]);
+    delete geofenceLayers[name];
+  }
+}
+
+function fmtTime(ts) {
+  if (!ts) return '?';
+  return new Date(ts).toLocaleTimeString('nl-NL', { timeZone: 'Europe/Amsterdam' });
+}
+
+function upsertMarker(pos) {
+  const { deviceId, name, lat, lon, timestamp } = pos;
+
+  // Build popup using DOM to avoid XSS with user-supplied device name
+  function makePopup() {
+    const div   = document.createElement('div');
+    const small = document.createElement('small');
+    div.textContent = name;
+    small.textContent = fmtTime(timestamp);
+    div.appendChild(document.createElement('br'));
+    div.appendChild(small);
+    return div;
+  }
+
+  if (markerLayers[deviceId]) {
+    markerLayers[deviceId].setLatLng([lat, lon]);
+    markerLayers[deviceId].setPopupContent(makePopup());
+    return;
+  }
+
+  const icon = L.divIcon({
+    html: `<div style="background:#fff;border:2px solid #333;border-radius:50%;width:12px;height:12px;"></div>`,
+    className: '', iconSize: [12, 12], iconAnchor: [6, 6],
+  });
+  const marker = L.marker([lat, lon], { icon })
+    .addTo(map)
+    .bindPopup(makePopup())
+    .bindTooltip(name, { permanent: true, offset: [8, 0] });
+  markerLayers[deviceId] = marker;
+}
+
+// ── Snapshot handler ──────────────────────────────────────────────────────────
+function applySnapshot(data) {
+  // Clear existing layers
+  Object.values(geofenceLayers).forEach(l => map.removeLayer(l));
+  Object.keys(geofenceLayers).forEach(k => delete geofenceLayers[k]);
+
+  scores = data.scores || {};
+  owners = data.owners || {};
+
+  (data.geofences || []).forEach(gf => upsertGeofence(gf));
+  Object.values(data.positions || {}).forEach(pos => upsertMarker(pos));
+
+  updateScoreboard();
+  updateOwnersTable();
+}
+
+// ── WebSocket ──────────────────────────────────────────────────────────────────
+const statusEl = document.getElementById('status');
+let ws, reconnectTimer;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen = () => {
+    statusEl.textContent = 'live';
+    statusEl.className = 'ok';
+    clearTimeout(reconnectTimer);
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = 'reconnecting…';
+    statusEl.className = '';
+    reconnectTimer = setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = evt => {
+    const msg = JSON.parse(evt.data);
+
+    switch (msg.type) {
+      case 'snapshot':
+        applySnapshot(msg);
+        break;
+
+      case 'position':
+        upsertMarker(msg);
+        break;
+
+      case 'geofence_update':
+        owners[msg.geofence.name] = msg.geofence.owner;
+        upsertGeofence(msg.geofence);
+        updateOwnersTable();
+        break;
+
+      case 'geofence_delete':
+        removeGeofence(msg.name);
+        delete owners[msg.name];
+        updateOwnersTable();
+        break;
+
+      case 'capture':
+        scores  = msg.scores;
+        owners  = msg.owners;
+        // Recolor the polygon
+        if (geofenceLayers[msg.geofenceName]) {
+          const color = msg.color;
+          geofenceLayers[msg.geofenceName].setStyle({ color, fillColor: color });
+        }
+        updateScoreboard();
+        updateOwnersTable();
+        break;
+    }
+  };
+}
+
+connect();
+
+// ── Owners toggle ──────────────────────────────────────────────────────────────
+document.getElementById('owners-toggle').addEventListener('click', function() {
+  const wrap = document.getElementById('owners-wrap');
+  const open = wrap.classList.toggle('open');
+  this.textContent = (open ? '▼ Hide' : '▶ Show') + ' territory owners';
+});
+</script>
+</body>
+</html>

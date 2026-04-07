@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CTF Admin</title>
+
+  <!-- Leaflet (served locally) -->
+  <link rel="stylesheet" href="/lib/leaflet.css" />
+  <script src="/lib/leaflet.js"></script>
+
+  <!-- Leaflet.draw (served locally) -->
+  <link rel="stylesheet" href="/lib/leaflet.draw.css" />
+  <script src="/lib/leaflet.draw.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; display: flex; flex-direction: column; height: 100vh; background: #1a1a2e; color: #eee; }
+
+    #header {
+      padding: 8px 12px;
+      background: #16213e;
+      border-bottom: 2px solid #c00;
+      flex-shrink: 0;
+      display: flex; align-items: center; gap: 12px;
+    }
+    #header h1 { font-size: 1.1rem; color: #f88; }
+    #status { font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; background: #888; margin-left: auto; }
+    #status.ok { background: #2d9e2d; }
+
+    #toolbar {
+      padding: 6px 12px;
+      background: #0f3460;
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+    #toolbar label { font-size: 0.8rem; color: #ccc; }
+    #toolbar select { padding: 3px 6px; border-radius: 4px; border: none; background: #16213e; color: #eee; }
+    #toolbar button {
+      padding: 4px 12px; border: none; border-radius: 4px; cursor: pointer;
+      font-size: 0.8rem; font-weight: bold;
+    }
+    .btn-danger { background: #c00; color: #fff; }
+    .btn-info   { background: #4363d8; color: #fff; }
+    .btn-warn   { background: #f58231; color: #fff; }
+
+    #map { flex: 1; }
+
+    /* modal */
+    #modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6); z-index: 9999;
+      align-items: center; justify-content: center;
+    }
+    #modal-overlay.open { display: flex; }
+    #modal {
+      background: #16213e; border: 2px solid #4363d8;
+      border-radius: 8px; padding: 24px; min-width: 320px;
+    }
+    #modal h2 { margin-bottom: 12px; font-size: 1rem; }
+    #modal input { width: 100%; padding: 6px; margin-bottom: 12px; border-radius: 4px; border: 1px solid #4363d8; background: #1a1a2e; color: #eee; font-size: 0.95rem; }
+    #modal .btn-row { display: flex; justify-content: flex-end; gap: 8px; }
+    #modal button { padding: 6px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    #modal-ok     { background: #3cb44b; color: #fff; }
+    #modal-cancel { background: #555; color: #fff; }
+
+    .gf-label { background: rgba(0,0,0,0.55); color: #fff; border: none; font-size: 0.75rem; padding: 2px 5px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<div id="header">
+  <h1>⚙️ CTF Admin</h1>
+  <small style="color:#f88">Draw polygons on the map · click a polygon to rename/delete</small>
+  <span id="status">connecting…</span>
+</div>
+
+<div id="toolbar">
+  <label>Selected territory:</label>
+  <span id="selected-name" style="color:#ff0;font-weight:bold;font-size:0.85rem">(none)</span>
+  <button class="btn-warn" id="btn-rename" disabled>Rename</button>
+  <button class="btn-danger" id="btn-delete" disabled>Delete</button>
+  <button class="btn-info" id="btn-refresh">↺ Refresh</button>
+</div>
+
+<!-- Name prompt modal -->
+<div id="modal-overlay">
+  <div id="modal">
+    <h2 id="modal-title">Territory name</h2>
+    <input id="modal-input" type="text" placeholder="Enter name…" />
+    <div class="btn-row">
+      <button id="modal-cancel">Cancel</button>
+      <button id="modal-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────────────────────────
+const TEAM_COLORS = {
+  Alfa:    '#e6194B', Bravo:   '#3cb44b', Charlie: '#ffe119', Delta:   '#4363d8',
+  Echo:    '#f58231', Foxtrot: '#911eb4', Juliet:  '#46f0f0', India:   '#fabed4',
+  Neutral: '#808080',
+};
+function teamColor(team) { return TEAM_COLORS[team] || TEAM_COLORS.Neutral; }
+
+// ── Map ────────────────────────────────────────────────────────────────────────
+const map = L.map('map').setView([52.15149, 6.21876], 15);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap', maxZoom: 19,
+}).addTo(map);
+
+const drawnItems = new L.FeatureGroup().addTo(map);
+
+const drawControl = new L.Control.Draw({
+  draw: {
+    polygon:   { showArea: true, allowIntersection: false, shapeOptions: { color: '#808080', fillOpacity: 0.35 } },
+    polyline:  false,
+    rectangle: false,
+    circle:    false,
+    marker:    false,
+    circlemarker: false,
+  },
+  edit: {
+    featureGroup: drawnItems,
+    remove: false, // we handle delete via toolbar button
+  },
+});
+map.addControl(drawControl);
+
+// ── State ──────────────────────────────────────────────────────────────────────
+const gfLayers  = {};   // name → L.Polygon
+const markerLayers = {}; // deviceId → L.Marker
+let   selectedName = null;
+
+// ── Modal helper ───────────────────────────────────────────────────────────────
+function promptModal(title, defaultVal = '') {
+  return new Promise(resolve => {
+    document.getElementById('modal-title').textContent = title;
+    const input = document.getElementById('modal-input');
+    input.value = defaultVal;
+    const overlay = document.getElementById('modal-overlay');
+    overlay.classList.add('open');
+    input.focus();
+
+    function cleanup(val) {
+      overlay.classList.remove('open');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      input.removeEventListener('keydown', onKey);
+      resolve(val);
+    }
+    const okBtn     = document.getElementById('modal-ok');
+    const cancelBtn = document.getElementById('modal-cancel');
+    function onOk()     { cleanup(input.value.trim() || null); }
+    function onCancel() { cleanup(null); }
+    function onKey(e)   { if (e.key === 'Enter') onOk(); if (e.key === 'Escape') onCancel(); }
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    input.addEventListener('keydown', onKey);
+  });
+}
+
+// ── Geofence layer helpers ─────────────────────────────────────────────────────
+function selectGeofence(name) {
+  selectedName = name;
+  document.getElementById('selected-name').textContent = name || '(none)';
+  document.getElementById('btn-rename').disabled = !name;
+  document.getElementById('btn-delete').disabled = !name;
+}
+
+function styleForOwner(owner) {
+  const c = teamColor(owner);
+  return { color: c, fillColor: c, fillOpacity: 0.35, weight: 2 };
+}
+
+function addGfLayer(gf) {
+  if (gfLayers[gf.name]) {
+    drawnItems.removeLayer(gfLayers[gf.name]);
+  }
+  const latlngs = gf.geojson.coordinates[0].map(([lon, lat]) => [lat, lon]);
+  const poly = L.polygon(latlngs, styleForOwner(gf.owner));
+  poly._ctfName = gf.name;
+  poly.bindTooltip(gf.name, { permanent: true, direction: 'center', className: 'gf-label' });
+  poly.on('click', () => selectGeofence(gf.name));
+  drawnItems.addLayer(poly);
+  gfLayers[gf.name] = poly;
+}
+
+function removeGfLayer(name) {
+  if (gfLayers[name]) {
+    drawnItems.removeLayer(gfLayers[name]);
+    delete gfLayers[name];
+  }
+  if (selectedName === name) selectGeofence(null);
+}
+
+// ── Convert Leaflet layer → GeoJSON Polygon ───────────────────────────────────
+function isRingClosed(coords) {
+  if (coords.length < 2) return false;
+  const first = coords[0], last = coords[coords.length - 1];
+  return first[0] === last[0] && first[1] === last[1];
+}
+
+function layerToGeojson(layer) {
+  const latlngs = layer.getLatLngs()[0];
+  const coords  = latlngs.map(ll => [ll.lng, ll.lat]);
+  if (!isRingClosed(coords)) coords.push(coords[0]);
+  return { type: 'Polygon', coordinates: [coords] };
+}
+
+// ── API helpers ────────────────────────────────────────────────────────────────
+async function apiPost(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(`POST ${url} → ${r.status}`);
+  return r.json();
+}
+async function apiPut(url, body) {
+  const r = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(`PUT ${url} → ${r.status}`);
+  return r.json();
+}
+async function apiDelete(url) {
+  const r = await fetch(url, { method: 'DELETE' });
+  if (!r.ok) throw new Error(`DELETE ${url} → ${r.status}`);
+  return r.json();
+}
+
+// ── Load all geofences ─────────────────────────────────────────────────────────
+async function loadGeofences() {
+  const list = await (await fetch('/api/geofences')).json();
+  // Clear
+  Object.keys(gfLayers).forEach(n => { drawnItems.removeLayer(gfLayers[n]); delete gfLayers[n]; });
+  list.forEach(gf => addGfLayer(gf));
+}
+
+// ── Leaflet.draw events ────────────────────────────────────────────────────────
+map.on(L.Draw.Event.CREATED, async e => {
+  const layer = e.layer;
+  const name  = await promptModal('Name this territory');
+  if (!name) { return; } // cancelled
+  const geojson = layerToGeojson(layer);
+  try {
+    const gf = await apiPost('/api/geofences', { name, geojson });
+    addGfLayer(gf);
+  } catch (err) {
+    alert('Error saving geofence: ' + err.message);
+  }
+});
+
+map.on(L.Draw.Event.EDITED, async e => {
+  const layers = e.layers;
+  const updates = [];
+  layers.eachLayer(layer => {
+    if (!layer._ctfName) return;
+    updates.push({ name: layer._ctfName, geojson: layerToGeojson(layer) });
+  });
+  for (const { name, geojson } of updates) {
+    try {
+      const gf = await apiPut(`/api/geofences/${encodeURIComponent(name)}`, { geojson });
+      addGfLayer(gf);
+    } catch (err) {
+      alert('Error updating geofence: ' + err.message);
+    }
+  }
+});
+
+// ── Toolbar buttons ────────────────────────────────────────────────────────────
+document.getElementById('btn-rename').addEventListener('click', async () => {
+  if (!selectedName) return;
+  const newName = await promptModal('Rename territory', selectedName);
+  if (!newName || newName === selectedName) return;
+  try {
+    const gf = await apiPut(`/api/geofences/${encodeURIComponent(selectedName)}`, { newName });
+    removeGfLayer(selectedName);
+    addGfLayer(gf);
+    selectGeofence(newName);
+  } catch (err) {
+    alert('Error renaming: ' + err.message);
+  }
+});
+
+document.getElementById('btn-delete').addEventListener('click', async () => {
+  if (!selectedName) return;
+  if (!confirm(`Delete territory "${selectedName}"?`)) return;
+  try {
+    await apiDelete(`/api/geofences/${encodeURIComponent(selectedName)}`);
+    removeGfLayer(selectedName);
+    selectGeofence(null);
+  } catch (err) {
+    alert('Error deleting: ' + err.message);
+  }
+});
+
+document.getElementById('btn-refresh').addEventListener('click', loadGeofences);
+
+// ── Tracker markers ────────────────────────────────────────────────────────────
+function fmtTime(ts) {
+  if (!ts) return '?';
+  return new Date(ts).toLocaleTimeString('nl-NL', { timeZone: 'Europe/Amsterdam' });
+}
+
+function upsertMarker(pos) {
+  const { deviceId, name, lat, lon, timestamp } = pos;
+
+  // Build popup with DOM methods to avoid XSS with user-supplied device name
+  function makePopup() {
+    const div   = document.createElement('div');
+    const small = document.createElement('small');
+    div.textContent = name;
+    small.textContent = fmtTime(timestamp);
+    div.appendChild(document.createElement('br'));
+    div.appendChild(small);
+    return div;
+  }
+
+  if (markerLayers[deviceId]) {
+    markerLayers[deviceId].setLatLng([lat, lon]);
+    markerLayers[deviceId].setPopupContent(makePopup());
+    return;
+  }
+  const icon = L.divIcon({
+    html: `<div style="background:#fff;border:2px solid #333;border-radius:50%;width:12px;height:12px;"></div>`,
+    className: '', iconSize: [12, 12], iconAnchor: [6, 6],
+  });
+  const marker = L.marker([lat, lon], { icon })
+    .addTo(map)
+    .bindPopup(makePopup())
+    .bindTooltip(name, { permanent: true, offset: [8, 0] });
+  markerLayers[deviceId] = marker;
+}
+
+// ── WebSocket ──────────────────────────────────────────────────────────────────
+const statusEl = document.getElementById('status');
+let ws, reconnectTimer;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen = () => {
+    statusEl.textContent = 'live';
+    statusEl.className = 'ok';
+    clearTimeout(reconnectTimer);
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = 'reconnecting…';
+    statusEl.className = '';
+    reconnectTimer = setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = evt => {
+    const msg = JSON.parse(evt.data);
+
+    switch (msg.type) {
+      case 'snapshot':
+        // Clear & reload
+        Object.keys(gfLayers).forEach(n => { drawnItems.removeLayer(gfLayers[n]); delete gfLayers[n]; });
+        (msg.geofences || []).forEach(gf => addGfLayer(gf));
+        Object.values(msg.positions || {}).forEach(p => upsertMarker(p));
+        break;
+
+      case 'position':
+        upsertMarker(msg);
+        break;
+
+      case 'geofence_update':
+        addGfLayer(msg.geofence);
+        break;
+
+      case 'geofence_delete':
+        removeGfLayer(msg.name);
+        break;
+
+      case 'capture':
+        if (gfLayers[msg.geofenceName]) {
+          const c = msg.color;
+          gfLayers[msg.geofenceName].setStyle({ color: c, fillColor: c });
+        }
+        break;
+    }
+  };
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+connect();
+</script>
+</body>
+</html>
