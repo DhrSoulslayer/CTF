@@ -34,7 +34,7 @@
       display: block; margin-top: 6px; font-size: 0.75rem; color: #aaa;
       cursor: pointer; text-decoration: underline; user-select: none;
     }
-    #btn-home {
+    #btn-home, #btn-admin {
       margin-left: 10px;
       padding: 2px 8px;
       border: none;
@@ -42,9 +42,10 @@
       font-size: 0.75rem;
       font-weight: bold;
       color: #fff;
-      background: #4363d8;
       cursor: pointer;
     }
+    #btn-home { background: #4363d8; }
+    #btn-admin { background: #e67e22; }
     #owners-wrap { margin-top: 6px; display: none; }
     #owners-wrap.open { display: block; }
     #owners-table { border-collapse: collapse; font-size: 0.75rem; width: 100%; }
@@ -65,7 +66,7 @@
   <span id="status">connecting…</span>
   <h1>🚩 CTF Live</h1>
   <div id="pills"></div>
-  <span id="owners-toggle">▶ Show territory owners</span><button id="btn-home" type="button">⌂ Home</button>
+  <span id="owners-toggle">▶ Show territory owners</span><button id="btn-home" type="button">⌂ Home</button><button id="btn-admin" type="button">🛠 Admin</button>
   <div id="owners-wrap">
     <table id="owners-table">
       <thead><tr><th>Territory</th><th>Owner</th></tr></thead>
@@ -343,6 +344,9 @@ document.getElementById('owners-toggle').addEventListener('click', function() {
 });
 
 document.getElementById('btn-home').addEventListener('click', fitMapToAllPolygons);
+document.getElementById('btn-admin').addEventListener('click', function() {
+  window.location.href = '/admin/';
+});
 </script>
 </body>
 </html>
