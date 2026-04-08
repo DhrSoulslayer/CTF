@@ -23,16 +23,25 @@ Deze applicatie bestaat uit:
 3. Overzicht van gebiedseigenaren.
 4. Home-knop om de kaart op alle gebieden te centreren.
 5. Admin-knop die doorverwijst naar /admin/.
+6. Centrale claim-klok per gebied: toont alleen de huidige claimduur sinds de laatste owner-wissel en kleurt mee met de eigenaar.
+7. Responsive layout voor mobiel en tablet.
+8. Opstartflow: eerst team kiezen, daarna optioneel push inschakelen, daarna live kaart laden.
+9. Team wisselen tijdens running is geblokkeerd; wisselen kan alleen bij paused of stopped.
+10. Geselecteerd team ziet live eigen resterende credits op de publieke pagina.
 
 ### Admin pagina (/admin)
 
-Basic Auth-beveiligde beheerpagina met drie panelen.
+Basic Auth-beveiligde beheerpagina met vijf panelen.
 
 1. Kaart bewerken:
    - Polygonen tekenen.
+  - Oppervlakte per gebied zichtbaar in m² tijdens beheer.
    - Bestaande polygonen aanpassen.
    - Gebieden hernoemen of verwijderen.
    - Live trackerweergave op de kaart.
+  - Centrale claim-klok per gebied die live oploopt en reset bij eigenaarswissel.
+  - Instelbare claimtijd (in seconden) voor gebiedsovername.
+  - Claimtijd wijzigen is alleen toegestaan bij game status paused of stopped.
    - Gamebediening: Start, Pause, Stop, Reset.
 2. Scores:
    - Teamscore per team.
@@ -43,14 +52,65 @@ Basic Auth-beveiligde beheerpagina met drie panelen.
    - Teamnamen en kleuren beheren.
    - Tracker uniqueId -> team mapping beheren.
    - Wijzigingen direct live toepassen na opslaan.
+4. Responsive bediening op mobiel/tablet, inclusief bruikbare tracker-ID en teaminvoervelden.
+5. History:
+  - Overzicht van opgeslagen rondes.
+  - Per ronde eindscore en eindtijd.
+  - Kaartweergave van polygonen zoals gebruikt in die ronde (snapshot), ook als latere polygonen zijn aangepast of opnieuw geïmporteerd.
+6. Spelmodi:
+  - Precies 1 actieve modus tegelijk: `wait` of `credits`.
+  - `wait`: claimen kost geen credits, alleen wachttijd.
+  - `credits`: claimen kost credits op basis van oppervlakte.
+  - Modus moet gekozen zijn voordat een ronde gestart kan worden.
+  - Modus is alleen wijzigbaar als de game status `stopped` is.
+
+### PWA en pushmeldingen
+
+1. De app bevat een Web App Manifest op `/manifest.webmanifest`.
+2. Service worker staat op `/sw.js` en wordt geregistreerd in `/pub` en `/admin`.
+3. Push events worden in de service worker afgehandeld en als notificatie getoond.
+4. Voor push en install als PWA is HTTPS nodig (of localhost tijdens development).
+5. Jij regelt SSL en reverse proxy; dat is voldoende om Web Push browser-vereisten te halen.
+6. De server heeft VAPID-configuratie nodig om push te versturen.
+7. Push-subscriptions worden team-specifiek opgeslagen; meldingen over gebiedsverlies gaan alleen naar het geselecteerde team.
+
+VAPID environment variabelen:
+
+1. `VAPID_PUBLIC_KEY`
+2. `VAPID_PRIVATE_KEY`
+3. `VAPID_SUBJECT` (bijvoorbeeld `mailto:admin@jouwdomein.nl`)
+
+Zonder deze variabelen blijft push uitgeschakeld op de server.
 
 ### Captureregels
 
 1. Positie komt binnen via Traccar.
 2. Alleen bij game status running wordt capturelogica toegepast.
-3. Als een tracker 30 seconden aaneengesloten in een gebied blijft, wordt het gebied overgenomen.
-4. Score telt alleen op bij echte wisseling van eigenaar.
+4. Als een tracker minimaal de ingestelde capture-tijd aaneengesloten in een gebied blijft, wordt het gebied overgenomen.
+4. Claimen kost credits op basis van gebiedsgrootte: 1 credit per m² (afgerond naar boven).
+5. Een claim wordt alleen uitgevoerd als het team voldoende credits heeft.
+6. Score telt alleen op bij echte wisseling van eigenaar.
 5. Bij eigenaarswissel wordt bezettingstijd van de vorige eigenaar opgeslagen.
+6. Bij eigenaarswissel ontvangt een push-geabonneerde browser een melding dat een team een gebied kwijt is geraakt.
+7. Bij onvoldoende credits voor een claimpoging ontvangt het betrokken team een pushmelding.
+
+Game status-overgangen:
+
+1. Overgang van stopped naar running start een nieuwe ronde, zet scores op nul en geeft elk team dezelfde startcredits.
+2. Tijdens paused blijven scores en credits behouden.
+3. Overgang van running of paused naar stopped slaat de ronde op in history.
+
+Capture-tijd configuratie:
+
+1. De capture-tijd is backend-configuratie in milliseconden (standaard 30000 ms).
+2. Aanpassen mag alleen als de game status paused of stopped is.
+3. Tijdens running wordt een wijziging geweigerd.
+
+Credits configuratie:
+
+1. Startcredits per team zijn backend-configuratie (gelijke waarde voor alle teams per nieuwe ronde).
+2. Aanpassen mag alleen als de game status paused of stopped is.
+3. Tijdens running wordt een wijziging geweigerd.
 
 ### Opslag en historie
 
@@ -62,6 +122,7 @@ De database bewaart onder andere:
 4. Gamestatus.
 5. Totale bezettingstijd per team.
 6. Bezettingstijd per gebied per team.
+7. Rondehistorie met start/eindtijd, eindscores, eindcredits, owners en polygon-snapshot.
 
 ## Snel starten (Docker Compose)
 
@@ -224,6 +285,9 @@ Opmerking: als Node-RED in Docker draait en niet op dezelfde host-network stack 
 | DB_PATH | /data/app.db | Pad naar SQLite database |
 | ADMIN_USER | admin | Gebruikersnaam voor /admin |
 | ADMIN_PASS | admin | Wachtwoord voor /admin |
+| VAPID_PUBLIC_KEY | - | Public VAPID key voor Web Push |
+| VAPID_PRIVATE_KEY | - | Private VAPID key voor Web Push |
+| VAPID_SUBJECT | mailto:admin@example.com | Contactsubject voor Web Push |
 
 Opmerking: in docker-compose.yml staan momenteel project-specifieke waarden ingesteld voor ADMIN_PASS.
 
@@ -236,6 +300,9 @@ Opmerking: in docker-compose.yml staan momenteel project-specifieke waarden inge
 3. GET /api/game
 4. GET /api/geofences
 5. POST /traccar
+6. GET /api/push/public-key
+7. POST /api/push/subscribe
+8. POST /api/push/unsubscribe
 
 ### Admin-beveiligd (Basic Auth + adminpagina referercontrole)
 
@@ -247,6 +314,10 @@ Opmerking: in docker-compose.yml staan momenteel project-specifieke waarden inge
 6. POST /api/geofences
 7. PUT /api/geofences/:name
 8. DELETE /api/geofences/:name
+9. GET /api/admin/settings
+10. PUT /api/admin/settings
+11. GET /api/admin/history
+12. GET /api/admin/history/:id
 
 ## WebSocket-events
 
@@ -258,6 +329,7 @@ Server stuurt onder andere deze eventtypes:
 4. geofence_delete
 5. capture
 6. game_status
+7. settings_update
 
 ## Teams en standaardkleuren
 

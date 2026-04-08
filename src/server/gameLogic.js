@@ -23,7 +23,10 @@ let teamColors = { [NEUTRAL_TEAM.name]: NEUTRAL_TEAM.color };
 let deviceTeams = {};
 
 const VALID_GAME_STATES = new Set(['running', 'paused', 'stopped']);
+const VALID_GAME_MODES = new Set(['wait', 'credits']);
 let gameStatus = db.getGameStatus();
+let captureHoldMs = db.getCaptureHoldMs();
+let gameMode = db.getGameMode();
 
 function cloneConfig(config) {
   return {
@@ -157,6 +160,27 @@ function getGameStatus() {
   return gameStatus;
 }
 
+function getCaptureHoldMs() {
+  return captureHoldMs;
+}
+
+function setCaptureHoldMs(ms) {
+  captureHoldMs = db.setCaptureHoldMs(ms);
+  return captureHoldMs;
+}
+
+function getGameMode() {
+  return gameMode;
+}
+
+function setGameMode(mode) {
+  if (!VALID_GAME_MODES.has(mode)) {
+    throw new Error('invalid game mode');
+  }
+  gameMode = db.setGameMode(mode);
+  return gameMode;
+}
+
 function setGameStatus(status) {
   if (!VALID_GAME_STATES.has(status)) {
     throw new Error('invalid game status');
@@ -176,6 +200,7 @@ function resetGame() {
 
 // Small epsilon prevents division by zero when two ring vertices share the same latitude.
 const EPSILON = 1e-12;
+const EARTH_RADIUS_M = 6378137;
 // ── Point-in-polygon (ray-casting, GeoJSON coords: [lon, lat]) ────────────────
 function pointInPolygon(lat, lon, coordinates) {
   const ring = coordinates[0]; // outer ring only
@@ -189,6 +214,35 @@ function pointInPolygon(lat, lon, coordinates) {
     if (intersect) inside = !inside;
   }
   return inside;
+}
+
+function toRad(deg) {
+  return (deg * Math.PI) / 180;
+}
+
+function ringAreaSquareMeters(ring) {
+  if (!Array.isArray(ring) || ring.length < 3) return 0;
+  let sum = 0;
+  for (let i = 0; i < ring.length; i += 1) {
+    const p1 = ring[i];
+    const p2 = ring[(i + 1) % ring.length];
+    const lon1 = toRad(Number(p1?.[0]) || 0);
+    const lat1 = toRad(Number(p1?.[1]) || 0);
+    const lon2 = toRad(Number(p2?.[0]) || 0);
+    const lat2 = toRad(Number(p2?.[1]) || 0);
+    sum += (lon2 - lon1) * (2 + Math.sin(lat1) + Math.sin(lat2));
+  }
+  return Math.abs(sum) * (EARTH_RADIUS_M * EARTH_RADIUS_M) / 2;
+}
+
+function polygonAreaSquareMeters(geojsonPolygon) {
+  const rings = geojsonPolygon?.coordinates;
+  if (!Array.isArray(rings) || !rings.length) return 0;
+  let area = ringAreaSquareMeters(rings[0]);
+  for (let i = 1; i < rings.length; i += 1) {
+    area -= ringAreaSquareMeters(rings[i]);
+  }
+  return Math.max(0, area);
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -231,12 +285,39 @@ function handlePosition(payload, broadcast) {
 
       const heldMs = now - state.enteredAt;
 
-      if (!state.triggered && heldMs >= 30_000) {
+      if (!state.triggered && heldMs >= captureHoldMs) {
         state.triggered = true;
 
         // Apply capture
         const prevOwner = geofence.owner;
-        db.transferGeofenceOwner(geofence.name, team, new Date(now).toISOString());
+        const ownerSince = new Date(now).toISOString();
+        if (prevOwner === team) {
+          geofenceState[key] = state;
+          continue;
+        }
+
+        let creditCost = 0;
+        if (gameMode === 'credits') {
+          const areaM2 = polygonAreaSquareMeters(geofence.geojson);
+          creditCost = Math.max(0, Math.ceil(areaM2));
+          const debit = db.trySpendTeamCredits(team, creditCost);
+          if (!debit.ok) {
+            broadcast({
+              type: 'capture_blocked',
+              reason: 'insufficient_credits',
+              geofenceName: geofence.name,
+              team,
+              creditCost,
+              teamCredits: db.getAllTeamCredits(),
+              scores: db.getAllScores(),
+              owners: db.getAllOwners(),
+            });
+            geofenceState[key] = state;
+            continue;
+          }
+        }
+
+        db.transferGeofenceOwner(geofence.name, team, ownerSince);
         if (prevOwner !== team) {
           db.incrementScore(team);
         }
@@ -247,6 +328,9 @@ function handlePosition(payload, broadcast) {
           team,
           prevTeam:     prevOwner,
           color:        teamColors[team] || teamColors.Neutral,
+          ownerSince,
+          creditCost,
+          teamCredits:  db.getAllTeamCredits(),
           deviceId,
           deviceName:   name,
           scores:       db.getAllScores(),
@@ -269,6 +353,10 @@ module.exports = {
   getTeamConfig,
   setTeamConfig,
   getGameStatus,
+  getCaptureHoldMs,
+  setCaptureHoldMs,
+  getGameMode,
+  setGameMode,
   setGameStatus,
   resetGame,
 };

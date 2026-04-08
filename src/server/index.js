@@ -7,6 +7,7 @@ const path       = require('path');
 
 const db         = require('./db');
 const gameLogic  = require('./gameLogic');
+const push       = require('./push');
 
 const app    = express();
 const server = http.createServer(app);
@@ -27,6 +28,63 @@ function broadcast(data) {
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) client.send(msg);
   });
+
+  if (data?.type === 'capture') {
+    notifyTeamLostTerritory(data).catch(err => {
+      console.error('Push notify failed:', err.message);
+    });
+  }
+  if (data?.type === 'capture_blocked' && data?.reason === 'insufficient_credits') {
+    notifyInsufficientCredits(data).catch(err => {
+      console.error('Push notify failed:', err.message);
+    });
+  }
+}
+
+async function notifyTeamLostTerritory(captureEvent) {
+  if (!push.isEnabled()) return;
+  if (!captureEvent?.prevTeam || captureEvent.prevTeam === 'Neutral') return;
+  if (captureEvent.prevTeam === captureEvent.team) return;
+
+  const subscriptions = db.getPushSubscriptionsByTeam(captureEvent.prevTeam);
+  if (!subscriptions.length) return;
+
+  const payload = {
+    title: 'Gebied verloren',
+    body: `${captureEvent.prevTeam} is ${captureEvent.geofenceName} kwijt aan ${captureEvent.team}`,
+    url: '/pub/',
+  };
+
+  for (const sub of subscriptions) {
+    const result = await push.sendPush(sub, payload);
+    if (!result.ok && result.shouldDelete) {
+      db.deletePushSubscription(sub.endpoint);
+    }
+  }
+}
+
+async function notifyInsufficientCredits(blockedEvent) {
+  if (!push.isEnabled()) return;
+  const team = String(blockedEvent?.team || '').trim();
+  if (!team || team === 'Neutral') return;
+
+  const subscriptions = db.getPushSubscriptionsByTeam(team);
+  if (!subscriptions.length) return;
+
+  const remaining = Math.max(0, Math.round(Number(blockedEvent?.teamCredits?.[team]) || 0));
+  const cost = Math.max(0, Math.round(Number(blockedEvent?.creditCost) || 0));
+  const payload = {
+    title: 'Onvoldoende credits',
+    body: `${team} kan ${blockedEvent.geofenceName} niet claimen: kost ${cost}, saldo ${remaining}`,
+    url: '/pub/',
+  };
+
+  for (const sub of subscriptions) {
+    const result = await push.sendPush(sub, payload);
+    if (!result.ok && result.shouldDelete) {
+      db.deletePushSubscription(sub.endpoint);
+    }
+  }
 }
 
 function buildSnapshot() {
@@ -35,13 +93,19 @@ function buildSnapshot() {
     geofences: db.getAllGeofences(),
     positions: db.getAllPositions(),
     scores:    db.getAllScores(),
+    teamCredits: db.getAllTeamCredits(),
     owners:    db.getAllOwners(),
     occupancyMs: db.getOccupancyTotals(),
     occupancyByTerritory: db.getOccupancyByGeofence(),
     mapDefault: db.getMapDefaultView(),
     teams:     gameLogic.getTeamConfig().teams,
     teamColors: gameLogic.getTeamColors(),
-    game:      { status: gameLogic.getGameStatus() },
+    game:      {
+      status: gameLogic.getGameStatus(),
+      mode: gameLogic.getGameMode(),
+      captureHoldMs: gameLogic.getCaptureHoldMs(),
+      initialTeamCredits: db.getInitialTeamCredits(),
+    },
   };
 }
 
@@ -101,6 +165,12 @@ function requireAdminPageRequest(req, res, next) {
 app.use('/lib',   express.static(path.join(__dirname, '../web/lib')));
 app.use('/pub',   express.static(path.join(__dirname, '../web/pub')));
 app.use('/admin', adminAuth, express.static(path.join(__dirname, '../web/admin')));
+app.get('/manifest.webmanifest', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../web/pub/manifest.webmanifest'));
+});
+app.get('/sw.js', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../web/pub/sw.js'));
+});
 
 // ── Root redirect ─────────────────────────────────────────────────────────────
 app.get('/', (_req, res) => res.redirect('/pub'));
@@ -116,7 +186,47 @@ app.get('/api/state', (_req, res) => {
 });
 
 app.get('/api/game', (_req, res) => {
-  res.json({ status: gameLogic.getGameStatus() });
+  res.json({
+    status: gameLogic.getGameStatus(),
+    mode: gameLogic.getGameMode(),
+    captureHoldMs: gameLogic.getCaptureHoldMs(),
+    initialTeamCredits: db.getInitialTeamCredits(),
+    teamCredits: db.getAllTeamCredits(),
+  });
+});
+
+app.get('/api/push/public-key', (_req, res) => {
+  res.json({ enabled: push.isEnabled(), publicKey: push.getPublicKey() || null });
+});
+
+app.post('/api/push/subscribe', (req, res) => {
+  if (!push.isEnabled()) {
+    return res.status(503).json({ error: 'push is not configured on server' });
+  }
+  try {
+    const team = String(req.body?.team || '').trim();
+    const validTeams = new Set(gameLogic.getTeamConfig().teams.map(t => t.name));
+    if (!validTeams.has(team)) {
+      return res.status(400).json({ error: 'invalid team for push subscription' });
+    }
+
+    const endpoint = String(req.body?.endpoint || '').trim();
+    const existing = db.getPushSubscription(endpoint);
+    if (existing && existing.team !== team && gameLogic.getGameStatus() === 'running') {
+      return res.status(409).json({ error: 'team switching is not allowed while game is running' });
+    }
+
+    db.upsertPushSubscription(req.body || {}, team);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'invalid subscription payload' });
+  }
+});
+
+app.post('/api/push/unsubscribe', (req, res) => {
+  const endpoint = req.body?.endpoint;
+  db.deletePushSubscription(endpoint);
+  res.json({ ok: true });
 });
 
 app.get('/api/admin/teams', adminAuth, requireAdminPageRequest, (_req, res) => {
@@ -137,10 +247,24 @@ app.put('/api/admin/teams', adminAuth, requireAdminPageRequest, (req, res) => {
 app.get('/api/admin/scores', adminAuth, requireAdminPageRequest, (_req, res) => {
   res.json({
     scores: db.getAllScores(),
+    teamCredits: db.getAllTeamCredits(),
     owners: db.getAllOwners(),
     occupancyMs: db.getOccupancyTotals(),
     occupancyByTerritory: db.getOccupancyByGeofence(),
   });
+});
+
+app.get('/api/admin/history', adminAuth, requireAdminPageRequest, (req, res) => {
+  const limit = Number(req.query?.limit);
+  res.json({ rounds: db.getRoundHistoryList(limit) });
+});
+
+app.get('/api/admin/history/:id', adminAuth, requireAdminPageRequest, (req, res) => {
+  const round = db.getRoundHistoryById(req.params.id);
+  if (!round) {
+    return res.status(404).json({ error: 'round not found' });
+  }
+  res.json(round);
 });
 
 app.get('/api/admin/geofences/export', adminAuth, requireAdminPageRequest, (_req, res) => {
@@ -168,14 +292,55 @@ app.post('/api/admin/geofences/import', adminAuth, requireAdminPageRequest, (req
 });
 
 app.get('/api/admin/settings', adminAuth, requireAdminPageRequest, (_req, res) => {
-  res.json({ mapDefault: db.getMapDefaultView() });
+  res.json({
+    mapDefault: db.getMapDefaultView(),
+    captureHoldMs: gameLogic.getCaptureHoldMs(),
+    initialTeamCredits: db.getInitialTeamCredits(),
+    gameMode: gameLogic.getGameMode(),
+  });
 });
 
 app.put('/api/admin/settings', adminAuth, requireAdminPageRequest, (req, res) => {
   try {
-    const mapDefault = db.setMapDefaultView(req.body?.mapDefault || {});
-    broadcast({ type: 'settings_update', mapDefault });
-    res.json({ mapDefault });
+    const updateMapDefault = req.body?.mapDefault !== undefined;
+    const updateCaptureHold = req.body?.captureHoldMs !== undefined;
+    const updateInitialCredits = req.body?.initialTeamCredits !== undefined;
+    const updateGameMode = req.body?.gameMode !== undefined;
+    if (!updateMapDefault && !updateCaptureHold && !updateInitialCredits && !updateGameMode) {
+      return res.status(400).json({ error: 'nothing to update' });
+    }
+
+    let mapDefault = db.getMapDefaultView();
+    if (updateMapDefault) {
+      mapDefault = db.setMapDefaultView(req.body?.mapDefault || {});
+    }
+
+    let captureHoldMs = gameLogic.getCaptureHoldMs();
+    if (updateCaptureHold) {
+      if (gameLogic.getGameStatus() === 'running') {
+        return res.status(409).json({ error: 'capture hold time can only be changed when game is paused or stopped' });
+      }
+      captureHoldMs = gameLogic.setCaptureHoldMs(req.body.captureHoldMs);
+    }
+
+    let initialTeamCredits = db.getInitialTeamCredits();
+    if (updateInitialCredits) {
+      if (gameLogic.getGameStatus() === 'running') {
+        return res.status(409).json({ error: 'initial team credits can only be changed when game is paused or stopped' });
+      }
+      initialTeamCredits = db.setInitialTeamCredits(req.body.initialTeamCredits);
+    }
+
+    let gameMode = gameLogic.getGameMode();
+    if (updateGameMode) {
+      if (gameLogic.getGameStatus() !== 'stopped') {
+        return res.status(409).json({ error: 'game mode can only be changed when game is stopped' });
+      }
+      gameMode = gameLogic.setGameMode(req.body.gameMode);
+    }
+
+    broadcast({ type: 'settings_update', mapDefault, captureHoldMs, initialTeamCredits, gameMode });
+    res.json({ mapDefault, captureHoldMs, initialTeamCredits, gameMode });
   } catch (err) {
     res.status(400).json({ error: err.message || 'invalid settings payload' });
   }
@@ -186,9 +351,46 @@ app.put('/api/game/status', adminAuth, requireAdminPageRequest, (req, res) => {
   if (!['running', 'paused', 'stopped'].includes(status)) {
     return res.status(400).json({ error: 'status must be running, paused, or stopped' });
   }
+
+  const prevStatus = gameLogic.getGameStatus();
+  const nowIso = new Date().toISOString();
+  let savedRoundId = null;
+
+  if (prevStatus === 'stopped' && status === 'running') {
+    const mode = gameLogic.getGameMode();
+    if (!['wait', 'credits'].includes(mode)) {
+      return res.status(409).json({ error: 'choose a game mode before starting a round' });
+    }
+    // New round starts: reset scores only.
+    db.resetScores();
+    if (mode === 'credits') {
+      const teamNames = gameLogic.getTeamConfig().teams.map(team => team.name);
+      db.initializeTeamCredits(teamNames, db.getInitialTeamCredits());
+    } else {
+      db.clearTeamCredits();
+    }
+    db.setCurrentRoundStartedAt(nowIso);
+  }
+
+  if (status === 'stopped' && prevStatus !== 'stopped') {
+    const startedAt = db.getCurrentRoundStartedAt() || nowIso;
+    savedRoundId = db.saveRoundHistory({
+      startedAt,
+      endedAt: nowIso,
+      endedReason: 'stopped',
+      gameMode: gameLogic.getGameMode(),
+      finalScores: db.getAllScores(),
+      finalCredits: db.getAllTeamCredits(),
+      finalOwners: db.getAllOwners(),
+      geofences: db.getAllGeofences(),
+    });
+    db.setCurrentRoundStartedAt('');
+  }
+
   const nextStatus = gameLogic.setGameStatus(status);
-  broadcast({ type: 'game_status', status: nextStatus });
-  res.json({ status: nextStatus });
+  const snapshot = buildSnapshot();
+  broadcast(snapshot);
+  res.json({ status: nextStatus, savedRoundId });
 });
 
 app.post('/api/game/reset', adminAuth, requireAdminPageRequest, (_req, res) => {

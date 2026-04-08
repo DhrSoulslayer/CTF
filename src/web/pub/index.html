@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CTF – Live Map</title>
+  <meta name="theme-color" content="#16213e" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/pub/icon.svg" type="image/svg+xml" />
 
   <!-- Leaflet (served locally) -->
   <link rel="stylesheet" href="/lib/leaflet.css" />
@@ -28,13 +31,38 @@
       border: 2px solid rgba(255,255,255,0.25); color: #000;
     }
     .pill .score { font-size: 1rem; }
+    #team-credit-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 8px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: bold;
+      border: 2px solid rgba(255,255,255,0.25);
+      background: #0f3460;
+      color: #fff;
+    }
+    #team-credit-pill.hidden { display: none; }
+    #team-alert {
+      margin-top: 6px;
+      padding: 5px 8px;
+      border-radius: 6px;
+      background: #5c1f1f;
+      border: 1px solid #c94a4a;
+      color: #ffe3e3;
+      font-size: 0.78rem;
+      display: none;
+    }
+    #team-alert.open { display: block; }
 
     /* owners toggle */
     #owners-toggle {
       display: block; margin-top: 6px; font-size: 0.75rem; color: #aaa;
       cursor: pointer; text-decoration: underline; user-select: none;
     }
-    #btn-home, #btn-admin {
+    #btn-home, #btn-admin, #btn-push {
       margin-left: 10px;
       padding: 2px 8px;
       border: none;
@@ -46,6 +74,7 @@
     }
     #btn-home { background: #4363d8; }
     #btn-admin { background: #e67e22; }
+    #btn-push { background: #16a085; }
     #owners-wrap { margin-top: 6px; display: none; }
     #owners-wrap.open { display: block; }
     #owners-table { border-collapse: collapse; font-size: 0.75rem; width: 100%; }
@@ -58,6 +87,140 @@
 
     /* ── Map ── */
     #map { flex: 1; }
+    .claim-clock {
+      min-width: 74px;
+      text-align: center;
+      font: 700 0.74rem/1.1 Arial, sans-serif;
+      color: #fff;
+      padding: 3px 6px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.55);
+      background: rgba(0,0,0,0.2);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.45);
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    @media (max-width: 860px) {
+      #header {
+        padding: 8px;
+      }
+      #header h1 {
+        display: block;
+        margin: 0 0 6px 0;
+      }
+      #status {
+        float: none;
+        display: inline-block;
+        margin-bottom: 6px;
+      }
+      #pills {
+        display: flex;
+        width: 100%;
+        gap: 5px;
+      }
+      .pill {
+        font-size: 0.72rem;
+        padding: 2px 8px;
+      }
+      #owners-toggle {
+        margin-top: 8px;
+        margin-right: 0;
+      }
+      #btn-home, #btn-admin, #btn-push {
+        margin-left: 0;
+        margin-top: 6px;
+        font-size: 0.78rem;
+        padding: 4px 10px;
+      }
+      #owners-table {
+        font-size: 0.72rem;
+      }
+      .claim-clock {
+        font-size: 0.68rem;
+        min-width: 66px;
+      }
+    }
+
+    #startup-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 12000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(7, 12, 24, 0.86);
+      padding: 14px;
+    }
+    #startup-overlay.hidden { display: none; }
+    #startup-card {
+      width: min(92vw, 520px);
+      background: #16213e;
+      border: 1px solid #38537f;
+      border-radius: 12px;
+      padding: 16px;
+    }
+    #startup-card h2 {
+      font-size: 1.02rem;
+      margin-bottom: 10px;
+      color: #dbe7ff;
+    }
+    .startup-row {
+      margin-bottom: 12px;
+    }
+    .startup-label {
+      display: block;
+      font-size: 0.82rem;
+      margin-bottom: 6px;
+      color: #a8c1e8;
+    }
+    .startup-select {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid #38537f;
+      border-radius: 6px;
+      background: #101e38;
+      color: #eef;
+      padding: 6px 8px;
+      font-size: 0.92rem;
+    }
+    .startup-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .startup-btn {
+      border: none;
+      border-radius: 6px;
+      min-height: 38px;
+      padding: 6px 12px;
+      color: #fff;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .startup-btn.primary { background: #16a085; }
+    .startup-btn.secondary { background: #4363d8; }
+    .startup-btn.ghost { background: #56617a; }
+    #startup-hint {
+      margin-top: 8px;
+      color: #9fb6da;
+      font-size: 0.8rem;
+      line-height: 1.35;
+    }
+    #startup-lock-badge {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      background: #56617a;
+      color: #eef;
+    }
+    #startup-lock-badge.active {
+      background: #f58231;
+      color: #101e38;
+    }
   </style>
 </head>
 <body>
@@ -66,7 +229,9 @@
   <span id="status">connecting…</span>
   <h1>🚩 CTF Live</h1>
   <div id="pills"></div>
-  <span id="owners-toggle">▶ Show territory owners</span><button id="btn-home" type="button">⌂ Home</button><button id="btn-admin" type="button">🛠 Admin</button>
+  <span id="team-credit-pill" class="hidden">Credits: <strong id="team-credit-value">0</strong></span>
+  <span id="owners-toggle">▶ Show territory owners</span><button id="btn-home" type="button">⌂ Home</button><button id="btn-admin" type="button">🛠 Admin</button><button id="btn-push" type="button">🔔 Push uit</button>
+  <div id="team-alert"></div>
   <div id="owners-wrap">
     <table id="owners-table">
       <thead><tr><th>Territory</th><th>Owner</th></tr></thead>
@@ -76,6 +241,25 @@
 </div>
 
 <div id="map"></div>
+
+<div id="startup-overlay">
+  <div id="startup-card">
+    <h2>Team kiezen en meldingen instellen</h2>
+    <div class="startup-row">
+      <label class="startup-label" for="startup-team">Voor welk team speel je?</label>
+      <select id="startup-team" class="startup-select">
+        <option value="">Kies een team...</option>
+      </select>
+    </div>
+    <div class="startup-actions">
+      <button id="startup-enable-push" class="startup-btn primary">Push aanzetten</button>
+      <button id="startup-skip-push" class="startup-btn secondary">Verder zonder push</button>
+      <button id="startup-load" class="startup-btn ghost">Laad kaart</button>
+    </div>
+    <div id="startup-lock-badge">Team lock uit</div>
+    <div id="startup-hint">Kies eerst je team. Met push ontvang je meldingen wanneer jouw team een gebied verliest.</div>
+  </div>
+</div>
 
 <script>
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -105,13 +289,20 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 // ── State ──────────────────────────────────────────────────────────────────────
 const geofenceLayers = {};   // name → L.Polygon
+const geofenceClaimClocks = {}; // name → { marker, owner, ownerSince }
 const markerLayers   = {};   // deviceId → L.Marker
 let   scores = {};
+let   teamCredits = {};
 let   owners = {};
 let   gameStatus = 'unknown';
+let   gameMode = '';
 const FIRST_OPEN_FIT_KEY = 'ctf-fit-polygons-once-v1';
 let   hasAutoFitted = false;
 let   mapDefaultView = { ...DEFAULT_MAP_VIEW };
+let   selectedTeam = localStorage.getItem('ctf-selected-team') || '';
+let   startupCompleted = false;
+let   startupGameStatus = 'unknown';
+let   teamAlertTimer = null;
 
 // ── UI helpers ─────────────────────────────────────────────────────────────────
 function teamColor(team) { return teamColors[team] || teamColors.Neutral || '#808080'; }
@@ -133,6 +324,31 @@ function updateScoreboard() {
     pill.appendChild(score);
     pills.appendChild(pill);
   });
+}
+
+function updateSelectedTeamCredits() {
+  const pill = document.getElementById('team-credit-pill');
+  const valueEl = document.getElementById('team-credit-value');
+  if (gameMode !== 'credits') {
+    pill.classList.add('hidden');
+    return;
+  }
+  const team = selectedTeam || localStorage.getItem('ctf-selected-team') || '';
+  if (!team) {
+    pill.classList.add('hidden');
+    return;
+  }
+  const credits = Math.max(0, Math.round(Number(teamCredits?.[team]) || 0));
+  valueEl.textContent = String(credits);
+  pill.classList.remove('hidden');
+}
+
+function showTeamAlert(message) {
+  const box = document.getElementById('team-alert');
+  box.textContent = message;
+  box.classList.add('open');
+  if (teamAlertTimer) clearTimeout(teamAlertTimer);
+  teamAlertTimer = setTimeout(() => box.classList.remove('open'), 7000);
 }
 
 function applyGameStatus(status) {
@@ -176,8 +392,9 @@ function upsertGeofence(gf) {
   // GeoJSON Polygon coordinates: [[[lon,lat],...]]  → Leaflet needs [lat,lon]
   const latlngs = gf.geojson.coordinates[0].map(([lon, lat]) => [lat, lon]);
   const poly = L.polygon(latlngs, style).addTo(map);
-  poly.bindTooltip(gf.name, { permanent: true, direction: 'center', className: 'gf-label' });
+  poly.bindTooltip(gf.name, { permanent: true, direction: 'top', className: 'gf-label' });
   geofenceLayers[gf.name] = poly;
+  upsertClaimClock(gf.name, poly, gf.owner, gf.ownerSince);
 }
 
 function removeGeofence(name) {
@@ -185,6 +402,75 @@ function removeGeofence(name) {
     map.removeLayer(geofenceLayers[name]);
     delete geofenceLayers[name];
   }
+  removeClaimClock(name);
+}
+
+function formatClaimDuration(ownerSinceIso) {
+  const sinceMs = Date.parse(ownerSinceIso || '');
+  if (!Number.isFinite(sinceMs)) return '00:00';
+  const elapsed = Math.max(0, Date.now() - sinceMs);
+  const totalSec = Math.floor(elapsed / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  if (hours > 0) {
+    return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function clockHtml(owner, ownerSinceIso) {
+  const bg = teamColor(owner);
+  const textColor = contrastTextColor(bg);
+  return `<div class="claim-clock" style="background:${bg};color:${textColor}">${formatClaimDuration(ownerSinceIso)}</div>`;
+}
+
+function contrastTextColor(hexColor) {
+  const hex = String(hexColor || '').replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return '#ffffff';
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const luminance = (0.299 * r) + (0.587 * g) + (0.114 * b);
+  return luminance > 160 ? '#111111' : '#ffffff';
+}
+
+function removeClaimClock(name) {
+  const clock = geofenceClaimClocks[name];
+  if (!clock) return;
+  map.removeLayer(clock.marker);
+  delete geofenceClaimClocks[name];
+}
+
+function upsertClaimClock(name, polygon, owner, ownerSinceIso) {
+  removeClaimClock(name);
+  const center = polygon.getBounds().getCenter();
+  const marker = L.marker(center, {
+    interactive: false,
+    keyboard: false,
+    icon: L.divIcon({
+      className: '',
+      html: clockHtml(owner, ownerSinceIso),
+      iconAnchor: [37, 12],
+    }),
+  }).addTo(map);
+
+  geofenceClaimClocks[name] = {
+    marker,
+    owner,
+    ownerSince: ownerSinceIso || new Date().toISOString(),
+  };
+}
+
+function refreshClaimClocks() {
+  Object.entries(geofenceClaimClocks).forEach(([name, clock]) => {
+    const poly = geofenceLayers[name];
+    if (!poly) return;
+    clock.marker.setLatLng(poly.getBounds().getCenter());
+    const icon = clock.marker.getIcon();
+    icon.options.html = clockHtml(clock.owner, clock.ownerSince);
+    clock.marker.setIcon(icon);
+  });
 }
 
 function maybeFitMapToPolygonsOnce() {
@@ -267,11 +553,15 @@ function applySnapshot(data) {
   // Clear existing layers
   Object.values(geofenceLayers).forEach(l => map.removeLayer(l));
   Object.keys(geofenceLayers).forEach(k => delete geofenceLayers[k]);
+  Object.values(geofenceClaimClocks).forEach(c => map.removeLayer(c.marker));
+  Object.keys(geofenceClaimClocks).forEach(k => delete geofenceClaimClocks[k]);
   Object.values(markerLayers).forEach(l => map.removeLayer(l));
   Object.keys(markerLayers).forEach(k => delete markerLayers[k]);
 
   scores = data.scores || {};
+  teamCredits = data.teamCredits || {};
   owners = data.owners || {};
+  gameMode = data.game?.mode || '';
   teams = Array.isArray(data.teams) && data.teams.length ? data.teams : teams;
   teamColors = { ...DEFAULT_TEAM_COLORS, ...(data.teamColors || {}) };
   applyMapDefaultView(data.mapDefault || mapDefaultView);
@@ -282,7 +572,60 @@ function applySnapshot(data) {
   Object.values(data.positions || {}).forEach(pos => upsertMarker(pos));
 
   updateScoreboard();
+  updateSelectedTeamCredits();
   updateOwnersTable();
+}
+
+function populateStartupTeams(teamList) {
+  const select = document.getElementById('startup-team');
+  const current = selectedTeam;
+  select.innerHTML = '<option value="">Kies een team...</option>' + teamList
+    .map(t => `<option value="${t.name}">${t.name}</option>`)
+    .join('');
+  if (current && teamList.some(t => t.name === current)) {
+    select.value = current;
+  }
+}
+
+function isTeamSwitchLocked() {
+  return startupGameStatus === 'running' && Boolean(localStorage.getItem('ctf-selected-team'));
+}
+
+function applyStartupTeamLock() {
+  const select = document.getElementById('startup-team');
+  const hint = document.getElementById('startup-hint');
+  const badge = document.getElementById('startup-lock-badge');
+  const locked = isTeamSwitchLocked();
+  select.disabled = locked;
+  if (locked) {
+    badge.textContent = 'Team lock actief (running)';
+    badge.classList.add('active');
+    hint.textContent = `Teamwissel is geblokkeerd tijdens running. Huidig team: ${selectedTeam}.`;
+  } else {
+    badge.textContent = 'Team lock uit';
+    badge.classList.remove('active');
+    hint.textContent = 'Kies eerst je team. Met push ontvang je meldingen wanneer jouw team een gebied verliest.';
+  }
+}
+
+function requireSelectedTeam() {
+  const team = String(document.getElementById('startup-team').value || '').trim();
+  if (!team) {
+    alert('Kies eerst een team');
+    return null;
+  }
+  selectedTeam = team;
+  localStorage.setItem('ctf-selected-team', team);
+  return team;
+}
+
+function completeStartupAndConnect() {
+  if (startupCompleted) return;
+  const team = requireSelectedTeam();
+  if (!team) return;
+  startupCompleted = true;
+  document.getElementById('startup-overlay').classList.add('hidden');
+  connect();
 }
 
 // ── WebSocket ──────────────────────────────────────────────────────────────────
@@ -333,14 +676,34 @@ function connect() {
 
       case 'capture':
         scores  = msg.scores;
+        teamCredits = msg.teamCredits || teamCredits;
         owners  = msg.owners;
         // Recolor the polygon
         if (geofenceLayers[msg.geofenceName]) {
           const color = msg.color;
           geofenceLayers[msg.geofenceName].setStyle({ color, fillColor: color });
+          const clock = geofenceClaimClocks[msg.geofenceName];
+          if (clock) {
+            clock.owner = msg.team;
+            clock.ownerSince = msg.ownerSince || new Date().toISOString();
+          }
         }
         updateScoreboard();
+        updateSelectedTeamCredits();
         updateOwnersTable();
+        break;
+
+      case 'capture_blocked':
+        scores = msg.scores || scores;
+        owners = msg.owners || owners;
+        teamCredits = msg.teamCredits || teamCredits;
+        updateScoreboard();
+        updateSelectedTeamCredits();
+        if ((selectedTeam || localStorage.getItem('ctf-selected-team') || '') === msg.team) {
+          const remaining = Math.max(0, Math.round(Number(msg.teamCredits?.[msg.team]) || 0));
+          const cost = Math.max(0, Math.round(Number(msg.creditCost) || 0));
+          showTeamAlert(`Onvoldoende credits om ${msg.geofenceName} te claimen. Kost: ${cost}, saldo: ${remaining}`);
+        }
         break;
 
       case 'game_status':
@@ -349,12 +712,165 @@ function connect() {
 
       case 'settings_update':
         applyMapDefaultView(msg.mapDefault || mapDefaultView);
+        if (msg.gameMode !== undefined) {
+          gameMode = msg.gameMode || '';
+          updateSelectedTeamCredits();
+        }
         break;
     }
   };
 }
 
-connect();
+setInterval(refreshClaimClocks, 1000);
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+      console.warn('Service worker registration failed:', err.message);
+    });
+  });
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const output = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    output[i] = rawData.charCodeAt(i);
+  }
+  return output;
+}
+
+async function syncPushButtonState() {
+  const btn = document.getElementById('btn-push');
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    btn.disabled = true;
+    btn.textContent = '🔔 Push niet beschikbaar';
+    return;
+  }
+
+  const keyInfo = await (await fetch('/api/push/public-key')).json();
+  if (!keyInfo.enabled || !keyInfo.publicKey) {
+    btn.disabled = true;
+    btn.textContent = '🔔 Push server uit';
+    return;
+  }
+
+  const reg = await navigator.serviceWorker.ready;
+  const existing = await reg.pushManager.getSubscription();
+  btn.disabled = false;
+  btn.dataset.publicKey = keyInfo.publicKey;
+  btn.textContent = existing ? '🔔 Push aan' : '🔔 Push uit';
+}
+
+async function enablePushForTeam(team) {
+  const btn = document.getElementById('btn-push');
+  if (btn.disabled) {
+    throw new Error('push is niet beschikbaar');
+  }
+
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    throw new Error('push toestemming is niet gegeven');
+  }
+
+  const reg = await navigator.serviceWorker.ready;
+  const publicKey = btn.dataset.publicKey;
+  let subscription = await reg.pushManager.getSubscription();
+  if (!subscription) {
+    subscription = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+  }
+
+  const r = await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...subscription, team }),
+  });
+  if (!r.ok) throw new Error(`subscribe failed (${r.status})`);
+  btn.textContent = '🔔 Push aan';
+}
+
+document.getElementById('btn-push').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-push');
+  if (btn.disabled) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) {
+      await fetch('/api/push/unsubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: existing.endpoint }),
+      });
+      await existing.unsubscribe();
+      btn.textContent = '🔔 Push uit';
+      return;
+    }
+
+    const team = selectedTeam || localStorage.getItem('ctf-selected-team') || '';
+    if (!team) {
+      alert('Kies eerst een team');
+      return;
+    }
+    await enablePushForTeam(team);
+  } catch (err) {
+    alert('Push configureren mislukt: ' + err.message);
+  }
+});
+
+syncPushButtonState().catch(() => {
+  const btn = document.getElementById('btn-push');
+  btn.disabled = true;
+  btn.textContent = '🔔 Push fout';
+});
+
+async function initStartupFlow() {
+  const state = await (await fetch('/api/state')).json();
+  startupGameStatus = state.game?.status || 'unknown';
+  const teamList = Array.isArray(state.teams) ? state.teams : [];
+  populateStartupTeams(teamList);
+  applyStartupTeamLock();
+}
+
+document.getElementById('startup-team').addEventListener('change', e => {
+  if (isTeamSwitchLocked()) {
+    e.target.value = selectedTeam;
+    alert('Team wisselen is niet toegestaan terwijl het spel running is.');
+    return;
+  }
+  selectedTeam = String(e.target.value || '').trim();
+  if (selectedTeam) {
+    localStorage.setItem('ctf-selected-team', selectedTeam);
+  }
+  updateSelectedTeamCredits();
+});
+
+document.getElementById('startup-load').addEventListener('click', () => {
+  completeStartupAndConnect();
+});
+
+document.getElementById('startup-skip-push').addEventListener('click', () => {
+  completeStartupAndConnect();
+});
+
+document.getElementById('startup-enable-push').addEventListener('click', async () => {
+  const team = requireSelectedTeam();
+  if (!team) return;
+  try {
+    await enablePushForTeam(team);
+    completeStartupAndConnect();
+  } catch (err) {
+    alert('Push activeren mislukt: ' + err.message);
+  }
+});
+
+initStartupFlow().catch(err => {
+  document.getElementById('startup-hint').textContent = 'Opstarten mislukt: ' + err.message;
+});
 
 // ── Owners toggle ──────────────────────────────────────────────────────────────
 document.getElementById('owners-toggle').addEventListener('click', function() {
