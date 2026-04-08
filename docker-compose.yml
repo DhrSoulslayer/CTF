@@ -3,12 +3,12 @@ services:
     container_name: ctf
     build: .
     ports:
-      - "3000:3000"
+      - "3456:3456"
     environment:
       - ADMIN_USER=admin
       - ADMIN_PASS=ultrageheim01!
       - DB_PATH=/data/app.db
-      - PORT=3000
+      - PORT=3456
     volumes:
       - ctf-data:/data
     restart: unless-stopped

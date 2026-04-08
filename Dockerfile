@@ -12,6 +12,6 @@ COPY src/ ./src/
 # Ensure data directory exists (will be overridden by volume)
 RUN mkdir -p /data
 
-EXPOSE 3000
+EXPOSE 3456
 
 CMD ["node", "src/server/index.js"]

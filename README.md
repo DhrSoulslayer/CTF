@@ -97,7 +97,7 @@ Voorbeeld:
 docker compose up -d --build
 ```
 
-Standaard draait de app op poort 3000.
+Standaard draait de app op poort 3456.
 
 ### 4. Traccar configureren
 
@@ -107,7 +107,7 @@ Stel in Traccar daarom dit in:
 
 ```xml
 <entry key='forward.type'>json</entry>
-<entry key='forward.url'>http://JOUW_HOST:3000/traccar</entry>
+<entry key='forward.url'>http://JOUW_HOST:3456/traccar</entry>
 ```
 
 Optioneel, maar nuttig als je retries wilt bij tijdelijke netwerkfouten:
@@ -120,7 +120,7 @@ Belangrijk aan de Traccar-kant:
 
 1. Gebruik `forward.type=json`, anders krijgt deze app niet het payload-formaat dat zij verwacht.
 2. `forward.url` mag globaal in de Traccar serverconfig staan of per device als device attribute worden gezet.
-3. De Traccar server moet `http://JOUW_HOST:3000/traccar` echt kunnen bereiken. Gebruik dus een hostnaam of IP dat vanuit de Traccar machine/container resolvebaar is.
+3. De Traccar server moet `http://JOUW_HOST:3456/traccar` echt kunnen bereiken. Gebruik dus een hostnaam of IP dat vanuit de Traccar machine/container resolvebaar is.
 4. Als deze app achter een reverse proxy draait, gebruik dan de publieke `https://.../traccar` URL.
 5. De `uniqueId` van elk device in Traccar moet exact overeenkomen met de device key die je in `src/shared/teams.json` of in de adminpagina aan een team koppelt.
 6. De device `name` uit Traccar wordt in deze app gebruikt als trackernaam op de kaart.
@@ -144,7 +144,66 @@ De JSON payload die deze app verwacht bevat minimaal:
 
 Opmerking: Traccar event notifications zoals geofence enter/exit of alarm notifications zijn voor deze app niet nodig om capturen te laten werken. De capturelogica draait volledig op de doorgestuurde positie-updates.
 
+### 5. Testen zonder Traccar (met curl)
+
+Je kunt de webhook direct testen met curl, zonder Traccar-installatie.
+
+1. Start de app met Docker Compose.
+2. Stuur een testpositie naar `/traccar`:
+
+```bash
+curl -X POST http://localhost:3456/traccar \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device": {
+      "uniqueId": "15839851",
+      "name": "Curl Tracker",
+      "lastUpdate": "2026-04-08T18:30:00.000Z"
+    },
+    "position": {
+      "latitude": 52.0907,
+      "longitude": 5.1214,
+      "serverTime": "2026-04-08T18:30:00.000Z"
+    }
+  }'
+```
+
+Verwacht resultaat:
+
+1. HTTP 200 response op de POST-call.
+2. De tracker verschijnt op `/pub` en `/admin`.
+3. Als `uniqueId` aan een team gekoppeld is, telt de positie mee voor capturelogica.
+
+Snelle capture-test zonder Traccar: stuur dezelfde positie meerdere keren met oplopende tijdstempel (minimaal 30 seconden totaal) terwijl de game op `running` staat en de positie in een gebied ligt.
+
+```bash
+for i in $(seq 0 6); do
+  ts=$(date -u -d "2026-04-08T18:30:00Z +$((i*5)) seconds" +"%Y-%m-%dT%H:%M:%S.000Z")
+  curl -s -X POST http://localhost:3456/traccar \
+    -H "Content-Type: application/json" \
+    -d "{\"device\":{\"uniqueId\":\"15839851\",\"name\":\"Curl Tracker\",\"lastUpdate\":\"$ts\"},\"position\":{\"latitude\":52.0907,\"longitude\":5.1214,\"serverTime\":\"$ts\"}}" >/dev/null
+done
+```
+
 Deze applicatie is bedoeld om als Docker-container te draaien. Gebruik daarom Docker Compose of een losse Docker image voor deployments en lokaal gebruik.
+
+### 6. Node-RED flow (proxy op /traccar)
+
+Er staat een importeerbare Node-RED flow in `nodered/traccar-forward-3456.flow.json`.
+
+Wat deze flow doet:
+
+1. Luistert op `POST /traccar` in Node-RED.
+2. Stuurt de ontvangen JSON direct door naar `http://localhost:3456/traccar`.
+3. Geeft de HTTP-status van de CTF-app terug aan de afzender.
+
+Importeren in Node-RED:
+
+1. Open Node-RED editor.
+2. Menu -> Import -> selecteer `nodered/traccar-forward-3456.flow.json`.
+3. Klik Deploy.
+
+Opmerking: als Node-RED in Docker draait en niet op dezelfde host-network stack zit, wijzig dan in de flow de target URL naar de service-naam binnen het Docker netwerk (bijvoorbeeld `http://ctf:3456/traccar`).
 
 ## URL's
 
@@ -161,7 +220,7 @@ Deze applicatie is bedoeld om als Docker-container te draaien. Gebruik daarom Do
 
 | Variabele | Standaard | Betekenis |
 |---|---|---|
-| PORT | 3000 | HTTP-poort |
+| PORT | 3456 | HTTP-poort |
 | DB_PATH | /data/app.db | Pad naar SQLite database |
 | ADMIN_USER | admin | Gebruikersnaam voor /admin |
 | ADMIN_PASS | admin | Wachtwoord voor /admin |

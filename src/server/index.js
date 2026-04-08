@@ -252,7 +252,7 @@ app.delete('/api/geofences/:name', adminAuth, requireAdminPageRequest, (req, res
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 3456;
 server.listen(PORT, () => {
   console.log(`CTF server listening on port ${PORT}`);
 });
