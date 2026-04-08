@@ -81,7 +81,7 @@ db.prepare(`
 
 db.prepare(`
   INSERT INTO game_state (id, status, updated_at)
-  VALUES (1, 'running', ?)
+  VALUES (1, 'stopped', ?)
   ON CONFLICT(id) DO NOTHING
 `).run(new Date().toISOString());
 
