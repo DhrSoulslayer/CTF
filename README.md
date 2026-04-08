@@ -10,7 +10,7 @@ Deze applicatie bestaat uit:
 
 1. Publieke livekaart op /pub voor spelers en toeschouwers.
 2. Beveiligde adminomgeving op /admin voor kaart- en gamebeheer.
-3. Traccar webhook op /traccar voor inkomende GPS-posities.
+3. Traccar position forward endpoint op /traccar voor inkomende GPS-posities.
 4. Realtime synchronisatie via WebSocket (/ws).
 5. Persistente opslag in SQLite (/data/app.db).
 
@@ -99,22 +99,52 @@ docker compose up -d --build
 
 Standaard draait de app op poort 3000.
 
-### 4. Traccar webhook instellen
+### 4. Traccar configureren
 
-Voeg in Traccar toe:
+Deze app verwacht aan de Traccar-kant geen gewone event-notification, maar de ingebouwde position forwarder in JSON-formaat.
 
-```text
-http://JOUW_HOST:3000/traccar
+Stel in Traccar daarom dit in:
+
+```xml
+<entry key='forward.type'>json</entry>
+<entry key='forward.url'>http://JOUW_HOST:3000/traccar</entry>
 ```
 
-## Lokaal draaien zonder Docker
+Optioneel, maar nuttig als je retries wilt bij tijdelijke netwerkfouten:
 
-```bash
-npm install
-npm start
+```xml
+<entry key='forward.retry.enable'>true</entry>
 ```
 
-Let op: standaard wordt DB_PATH gebruikt zoals in de code geconfigureerd. Met Docker staat deze op /data/app.db.
+Belangrijk aan de Traccar-kant:
+
+1. Gebruik `forward.type=json`, anders krijgt deze app niet het payload-formaat dat zij verwacht.
+2. `forward.url` mag globaal in de Traccar serverconfig staan of per device als device attribute worden gezet.
+3. De Traccar server moet `http://JOUW_HOST:3000/traccar` echt kunnen bereiken. Gebruik dus een hostnaam of IP dat vanuit de Traccar machine/container resolvebaar is.
+4. Als deze app achter een reverse proxy draait, gebruik dan de publieke `https://.../traccar` URL.
+5. De `uniqueId` van elk device in Traccar moet exact overeenkomen met de device key die je in `src/shared/teams.json` of in de adminpagina aan een team koppelt.
+6. De device `name` uit Traccar wordt in deze app gebruikt als trackernaam op de kaart.
+
+De JSON payload die deze app verwacht bevat minimaal:
+
+```json
+{
+  "device": {
+    "uniqueId": "15839851",
+    "name": "Tracker Alfa",
+    "lastUpdate": "2026-04-08T18:30:00.000Z"
+  },
+  "position": {
+    "latitude": 52.0,
+    "longitude": 5.0,
+    "serverTime": "2026-04-08T18:30:00.000Z"
+  }
+}
+```
+
+Opmerking: Traccar event notifications zoals geofence enter/exit of alarm notifications zijn voor deze app niet nodig om capturen te laten werken. De capturelogica draait volledig op de doorgestuurde positie-updates.
+
+Deze applicatie is bedoeld om als Docker-container te draaien. Gebruik daarom Docker Compose of een losse Docker image voor deployments en lokaal gebruik.
 
 ## URL's
 
