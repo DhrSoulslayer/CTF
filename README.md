@@ -24,6 +24,7 @@ Deze applicatie bestaat uit:
 4. Home-knop om de kaart op alle gebieden te centreren.
 5. Admin-knop die doorverwijst naar /admin/.
 6. Centrale claim-klok per gebied: toont alleen de huidige claimduur sinds de laatste owner-wissel en kleurt mee met de eigenaar.
+7. Voor gebieden met owner `Neutral` wordt geen claim-klok getoond.
 7. Responsive layout voor mobiel en tablet.
 8. Opstartflow: eerst team kiezen, daarna optioneel push inschakelen, daarna live kaart laden.
 9. Team wisselen tijdens running is geblokkeerd; wisselen kan alleen bij paused of stopped.
@@ -91,8 +92,9 @@ Zonder deze variabelen blijft push uitgeschakeld op de server.
 5. Een claim wordt alleen uitgevoerd als het team voldoende credits heeft.
 6. Score telt alleen op bij echte wisseling van eigenaar.
 5. Bij eigenaarswissel wordt bezettingstijd van de vorige eigenaar opgeslagen.
-6. Bij eigenaarswissel ontvangt een push-geabonneerde browser een melding dat een team een gebied kwijt is geraakt.
-7. Bij onvoldoende credits voor een claimpoging ontvangt het betrokken team een pushmelding.
+6. Neutral-bezettingstijd wordt niet bijgehouden.
+7. Bij eigenaarswissel ontvangt een push-geabonneerde browser een melding dat een team een gebied kwijt is geraakt.
+8. Bij onvoldoende credits voor een claimpoging ontvangt het betrokken team een pushmelding.
 
 Game status-overgangen:
 

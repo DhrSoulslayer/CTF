@@ -143,6 +143,25 @@
     }
     .game-card h3 { font-size: 0.9rem; margin-bottom: 8px; color: #dbe7ff; }
     .game-card .row-actions { margin-bottom: 0; }
+    .game-action-btn {
+      min-height: 46px;
+      min-width: 96px;
+      padding: 10px 16px;
+      font-size: 0.98rem;
+      font-weight: 800;
+      border: 2px solid rgba(255,255,255,0.22);
+      border-radius: 8px;
+      letter-spacing: 0.01em;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      transition: transform 0.08s ease, filter 0.12s ease;
+    }
+    .game-action-btn:hover {
+      filter: brightness(1.08);
+      transform: translateY(-1px);
+    }
+    .game-action-btn:active {
+      transform: translateY(0);
+    }
     .history-layout {
       display: grid;
       grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
@@ -322,6 +341,10 @@
       #toolbar select {
         min-height: 36px;
       }
+      .game-action-btn {
+        flex: 1 1 calc(50% - 6px);
+        min-width: 0;
+      }
       #map {
         min-height: 46vh;
       }
@@ -437,10 +460,10 @@
         <div class="game-card">
           <h3>Rondestatus</h3>
           <div class="row-actions">
-            <button class="btn-info" id="btn-game-start">Start</button>
-            <button class="btn-warn" id="btn-game-pause">Pause</button>
-            <button class="btn-danger" id="btn-game-stop">Stop</button>
-            <button class="btn-danger" id="btn-game-reset">Reset</button>
+            <button class="btn-info game-action-btn" id="btn-game-start">Start</button>
+            <button class="btn-warn game-action-btn" id="btn-game-pause">Pause</button>
+            <button class="btn-danger game-action-btn" id="btn-game-stop">Stop</button>
+            <button class="btn-danger game-action-btn" id="btn-game-reset">Reset</button>
           </div>
         </div>
         <div class="game-card">
@@ -592,13 +615,12 @@ const geofenceClaimClocks = {}; // name → { marker, owner, ownerSince }
 const markerLayers = {}; // deviceId → L.Marker
 let   selectedName = null;
 let   gameStatus = 'unknown';
-const FIRST_OPEN_FIT_KEY = 'ctf-fit-polygons-once-v1';
-let   hasAutoFitted = false;
 let   hasAppliedServerMapDefault = false;
 let   mapDefaultView = { ...DEFAULT_MAP_VIEW };
 let   captureHoldMs = 30000;
 let   initialTeamCredits = 1000;
 let   gameMode = '';
+let   autoFitLockedByUser = false;
 let teamRows = [];
 let deviceRows = [];
 let historyRows = [];
@@ -811,6 +833,7 @@ function removeClaimClock(name) {
 
 function upsertClaimClock(name, polygon, owner, ownerSinceIso) {
   removeClaimClock(name);
+  if (owner === 'Neutral') return;
   const center = polygon.getBounds().getCenter();
   const marker = L.marker(center, {
     interactive: false,
@@ -840,11 +863,7 @@ function refreshClaimClocks() {
 }
 
 function maybeFitMapToPolygonsOnce() {
-  if (hasAutoFitted) return;
-  if (localStorage.getItem(FIRST_OPEN_FIT_KEY) === '1') {
-    hasAutoFitted = true;
-    return;
-  }
+  if (autoFitLockedByUser) return;
 
   const layers = Object.values(gfLayers);
   if (!layers.length) return;
@@ -853,8 +872,6 @@ function maybeFitMapToPolygonsOnce() {
   if (!bounds.isValid()) return;
 
   map.fitBounds(bounds.pad(0.15));
-  localStorage.setItem(FIRST_OPEN_FIT_KEY, '1');
-  hasAutoFitted = true;
 }
 
 function fitMapToAllPolygons() {
@@ -867,6 +884,15 @@ function fitMapToAllPolygons() {
   if (!bounds.isValid()) return;
   map.fitBounds(bounds.pad(0.15));
 }
+
+function lockAutoFitByUser() {
+  autoFitLockedByUser = true;
+}
+
+const mapContainer = map.getContainer();
+['mousedown', 'touchstart', 'wheel', 'dblclick', 'keydown'].forEach(evtName => {
+  mapContainer.addEventListener(evtName, lockAutoFitByUser, { passive: true });
+});
 
 // ── Convert Leaflet layer → GeoJSON Polygon ───────────────────────────────────
 function isRingClosed(coords) {

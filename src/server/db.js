@@ -381,7 +381,7 @@ module.exports = {
       : 0;
 
     const tx = db.transaction(() => {
-      if (heldMs > 0) {
+      if (heldMs > 0 && prevOwner !== 'Neutral') {
         db.prepare(`
           INSERT INTO occupancy_totals (team, total_ms) VALUES (?, ?)
           ON CONFLICT(team) DO UPDATE SET total_ms = total_ms + excluded.total_ms
@@ -526,12 +526,14 @@ module.exports = {
   getOccupancyTotals(nowIso) {
     const nowMs = Date.parse(nowIso || new Date().toISOString());
     const totals = db.prepare('SELECT team, total_ms FROM occupancy_totals').all().reduce((acc, row) => {
+      if (row.team === 'Neutral') return acc;
       acc[row.team] = Number(row.total_ms) || 0;
       return acc;
     }, {});
 
     const activeOwners = db.prepare('SELECT owner, owner_since FROM geofences').all();
     activeOwners.forEach(row => {
+      if (row.owner === 'Neutral') return;
       const sinceMs = Date.parse(row.owner_since || '');
       if (!Number.isFinite(sinceMs) || !Number.isFinite(nowMs)) return;
       const heldMs = Math.max(0, nowMs - sinceMs);
@@ -547,12 +549,14 @@ module.exports = {
 
     const persisted = db.prepare('SELECT geofence, team, total_ms FROM occupancy_by_geofence').all();
     persisted.forEach(row => {
+      if (row.team === 'Neutral') return;
       if (!byGeofence[row.geofence]) byGeofence[row.geofence] = {};
       byGeofence[row.geofence][row.team] = Number(row.total_ms) || 0;
     });
 
     const activeOwners = db.prepare('SELECT name, owner, owner_since FROM geofences').all();
     activeOwners.forEach(row => {
+      if (row.owner === 'Neutral') return;
       const sinceMs = Date.parse(row.owner_since || '');
       if (!Number.isFinite(sinceMs) || !Number.isFinite(nowMs)) return;
       const heldMs = Math.max(0, nowMs - sinceMs);

@@ -444,6 +444,7 @@ function removeClaimClock(name) {
 
 function upsertClaimClock(name, polygon, owner, ownerSinceIso) {
   removeClaimClock(name);
+  if (owner === 'Neutral') return;
   const center = polygon.getBounds().getCenter();
   const marker = L.marker(center, {
     interactive: false,
