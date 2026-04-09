@@ -930,7 +930,7 @@ async function syncPushButtonState() {
   const btn = document.getElementById('btn-push');
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     btn.disabled = true;
-    btn.textContent = '🔔 Push niet beschikbaar';
+    btn.textContent = window.isSecureContext ? '🔔 Push niet beschikbaar' : '🔔 Push vereist HTTPS';
     return;
   }
 
@@ -954,6 +954,10 @@ async function enablePushForTeam(team) {
     throw new Error('push is niet beschikbaar');
   }
 
+  if (!window.isSecureContext) {
+    throw new Error('push vereist HTTPS (secure context)');
+  }
+
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
     throw new Error('push toestemming is niet gegeven');
@@ -969,10 +973,20 @@ async function enablePushForTeam(team) {
     });
   }
 
+  const serialized = typeof subscription.toJSON === 'function'
+    ? subscription.toJSON()
+    : {
+      endpoint: subscription.endpoint,
+      keys: {
+        p256dh: subscription.getKey ? btoa(String.fromCharCode(...new Uint8Array(subscription.getKey('p256dh') || new Uint8Array()))) : '',
+        auth: subscription.getKey ? btoa(String.fromCharCode(...new Uint8Array(subscription.getKey('auth') || new Uint8Array()))) : '',
+      },
+    };
+
   const r = await fetch('/api/push/subscribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...subscription, team }),
+    body: JSON.stringify({ ...serialized, team }),
   });
   if (!r.ok) throw new Error(`subscribe failed (${r.status})`);
   btn.textContent = '🔔 Push aan';

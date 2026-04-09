@@ -1,10 +1,37 @@
 'use strict';
 
 const webpush = require('web-push');
+const db = require('./db');
 
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+const DEFAULT_VAPID_SUBJECT = 'mailto:admin@example.com';
+const envPublicKey = String(process.env.VAPID_PUBLIC_KEY || '').trim();
+const envPrivateKey = String(process.env.VAPID_PRIVATE_KEY || '').trim();
+const envSubject = String(process.env.VAPID_SUBJECT || '').trim();
+
+let VAPID_PUBLIC_KEY = envPublicKey;
+let VAPID_PRIVATE_KEY = envPrivateKey;
+let VAPID_SUBJECT = envSubject || DEFAULT_VAPID_SUBJECT;
+
+if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+  const stored = db.getVapidConfig();
+  if (stored.publicKey && stored.privateKey) {
+    VAPID_PUBLIC_KEY = stored.publicKey;
+    VAPID_PRIVATE_KEY = stored.privateKey;
+    VAPID_SUBJECT = envSubject || stored.subject || DEFAULT_VAPID_SUBJECT;
+  }
+}
+
+if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+  const generated = webpush.generateVAPIDKeys();
+  VAPID_PUBLIC_KEY = generated.publicKey;
+  VAPID_PRIVATE_KEY = generated.privateKey;
+  VAPID_SUBJECT = envSubject || DEFAULT_VAPID_SUBJECT;
+  db.setVapidConfig({
+    publicKey: VAPID_PUBLIC_KEY,
+    privateKey: VAPID_PRIVATE_KEY,
+    subject: VAPID_SUBJECT,
+  });
+}
 
 const enabled = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 if (enabled) {

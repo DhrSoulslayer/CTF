@@ -72,7 +72,7 @@ Basic Auth-beveiligde beheerpagina met vijf panelen.
 3. Push events worden in de service worker afgehandeld en als notificatie getoond.
 4. Voor push en install als PWA is HTTPS nodig (of localhost tijdens development).
 5. Jij regelt SSL en reverse proxy; dat is voldoende om Web Push browser-vereisten te halen.
-6. De server heeft VAPID-configuratie nodig om push te versturen.
+6. De server gebruikt VAPID-configuratie voor push. Als deze variabelen niet gezet zijn, genereert de server automatisch een keypair en slaat die persistent op in de database.
 7. Push-subscriptions worden team-specifiek opgeslagen; meldingen over gebiedsverlies gaan alleen naar het geselecteerde team.
 
 VAPID environment variabelen:
@@ -81,7 +81,7 @@ VAPID environment variabelen:
 2. `VAPID_PRIVATE_KEY`
 3. `VAPID_SUBJECT` (bijvoorbeeld `mailto:admin@jouwdomein.nl`)
 
-Zonder deze variabelen blijft push uitgeschakeld op de server.
+Zonder deze variabelen blijft push beschikbaar door automatische keygeneratie; expliciet instellen kan nog steeds voor beheerde sleutelrotatie.
 
 ### Captureregels
 
@@ -290,6 +290,8 @@ Opmerking: als Node-RED in Docker draait en niet op dezelfde host-network stack 
 | VAPID_PUBLIC_KEY | - | Public VAPID key voor Web Push |
 | VAPID_PRIVATE_KEY | - | Private VAPID key voor Web Push |
 | VAPID_SUBJECT | mailto:admin@example.com | Contactsubject voor Web Push |
+
+Als `VAPID_PUBLIC_KEY` en `VAPID_PRIVATE_KEY` ontbreken, worden ze bij eerste start automatisch gegenereerd en in `app_settings` opgeslagen.
 
 Opmerking: in docker-compose.yml staan momenteel project-specifieke waarden ingesteld voor ADMIN_PASS.
 

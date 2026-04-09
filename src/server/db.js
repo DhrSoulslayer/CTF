@@ -263,6 +263,45 @@ module.exports = {
     return normalized;
   },
 
+  getVapidConfig() {
+    const rows = db.prepare(
+      "SELECT key, value FROM app_settings WHERE key IN ('vapid_public_key','vapid_private_key','vapid_subject')"
+    ).all();
+    const map = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    return {
+      publicKey: String(map.vapid_public_key || '').trim(),
+      privateKey: String(map.vapid_private_key || '').trim(),
+      subject: String(map.vapid_subject || '').trim(),
+    };
+  },
+
+  setVapidConfig({ publicKey, privateKey, subject }) {
+    const cleanPublic = String(publicKey || '').trim();
+    const cleanPrivate = String(privateKey || '').trim();
+    const cleanSubject = String(subject || '').trim();
+    if (!cleanPublic || !cleanPrivate) {
+      throw new Error('invalid vapid config: keys are required');
+    }
+
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO app_settings (key, value)
+        VALUES ('vapid_public_key', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(cleanPublic);
+      db.prepare(`
+        INSERT INTO app_settings (key, value)
+        VALUES ('vapid_private_key', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(cleanPrivate);
+      db.prepare(`
+        INSERT INTO app_settings (key, value)
+        VALUES ('vapid_subject', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(cleanSubject || 'mailto:admin@example.com');
+    })();
+  },
+
   getMapDefaultView() {
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'map_default_view'").get();
     if (!row?.value) return { ...DEFAULT_MAP_VIEW };
