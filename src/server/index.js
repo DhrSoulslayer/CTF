@@ -141,15 +141,16 @@ function adminAuth(req, res, next) {
 }
 
 function requireAdminPageRequest(req, res, next) {
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
-  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
-  const proto = forwardedProto || req.protocol;
-  const host = forwardedHost || req.headers.host;
-  const expectedOrigin = `${proto}://${host}`;
+  const forwardedHostRaw = String(req.headers['x-forwarded-host'] || '');
+  const candidateHosts = [
+    ...forwardedHostRaw.split(',').map(v => v.trim()).filter(Boolean),
+    String(req.headers.host || '').trim(),
+  ].filter(Boolean);
+
   const refererRaw = req.headers.referer || '';
   const originRaw = req.headers.origin || '';
 
-  if (!host) {
+  if (!candidateHosts.length) {
     return res.status(403).json({ error: 'Missing host header' });
   }
 
@@ -157,11 +158,41 @@ function requireAdminPageRequest(req, res, next) {
     return res.status(403).json({ error: 'Admin page origin/referer is required' });
   }
 
+  function normalizeHost(hostValue) {
+    const value = String(hostValue || '').trim().toLowerCase();
+    if (!value) return null;
+    try {
+      const u = new URL(`http://${value}`);
+      return { hostname: u.hostname, port: u.port || '' };
+    } catch {
+      return null;
+    }
+  }
+
+  function hostAllowed(requestHost, headerHost) {
+    const a = normalizeHost(requestHost);
+    const b = normalizeHost(headerHost);
+    if (!a || !b) return false;
+    if (a.hostname !== b.hostname) return false;
+    // Allow with/without explicit port (common with reverse proxies on 443).
+    if (!a.port || !b.port) return true;
+    return a.port === b.port;
+  }
+
+  function isAllowedOrigin(originValue) {
+    try {
+      const u = new URL(originValue);
+      const originHost = u.host;
+      return candidateHosts.some(h => hostAllowed(h, originHost));
+    } catch {
+      return false;
+    }
+  }
+
   if (refererRaw) {
     try {
       const referer = new URL(refererRaw);
-      const refererOrigin = `${referer.protocol}//${referer.host}`;
-      if (refererOrigin !== expectedOrigin || !referer.pathname.startsWith('/admin')) {
+      if (!isAllowedOrigin(`${referer.protocol}//${referer.host}`) || !referer.pathname.startsWith('/admin')) {
         return res.status(403).json({ error: 'Request must come from the admin page' });
       }
       return next();
@@ -171,9 +202,7 @@ function requireAdminPageRequest(req, res, next) {
   }
 
   try {
-    const origin = new URL(originRaw);
-    const originValue = `${origin.protocol}//${origin.host}`;
-    if (originValue !== expectedOrigin) {
+    if (!isAllowedOrigin(originRaw)) {
       return res.status(403).json({ error: 'Request origin is not allowed' });
     }
   } catch {
