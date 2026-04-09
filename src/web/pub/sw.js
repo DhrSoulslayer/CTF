@@ -1,6 +1,6 @@
 /* global self, clients */
 
-const CACHE_NAME = 'ctf-cache-v1';
+const CACHE_NAME = 'ctf-cache-v2';
 const ASSETS = [
   '/pub/',
   '/pub/index.html',
@@ -25,12 +25,25 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+  // Never cache or intercept admin/API/websocket-related traffic.
+  if (
+    url.origin === self.location.origin &&
+    (url.pathname.startsWith('/admin') || url.pathname.startsWith('/api') || url.pathname.startsWith('/ws'))
+  ) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;
       return fetch(event.request).then(resp => {
-        const clone = resp.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        // Cache only successful same-origin responses.
+        if (resp.ok && url.origin === self.location.origin) {
+          const clone = resp.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
         return resp;
       }).catch(() => caches.match('/pub/index.html'));
     })

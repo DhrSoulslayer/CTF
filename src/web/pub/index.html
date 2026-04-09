@@ -221,6 +221,189 @@
       background: #f58231;
       color: #101e38;
     }
+
+    /* HeartBeat-style theme overrides */
+    :root {
+      --hb-bg: #f4f6f9;
+      --hb-surface: #ffffff;
+      --hb-text: #2d3748;
+      --hb-muted: #718096;
+      --hb-border: #e2e8f0;
+      --hb-primary: #3182ce;
+      --hb-primary-dark: #2b6cb0;
+      --hb-success: #38a169;
+      --hb-warning: #dd6b20;
+      --hb-danger: #e53e3e;
+      --hb-radius: 8px;
+      --hb-shadow: 0 1px 3px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.08);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--hb-bg);
+      color: var(--hb-text);
+    }
+
+    #header {
+      background: var(--hb-primary);
+      border-bottom: none;
+      color: #fff;
+      box-shadow: var(--hb-shadow);
+      position: relative;
+      overflow: hidden;
+    }
+    #header h1 {
+      color: #fff;
+      letter-spacing: .02em;
+    }
+
+    #status {
+      background: rgba(255,255,255,.28);
+      color: #fff;
+      font-weight: 700;
+    }
+    #status.ok {
+      background: rgba(56,161,105,.92);
+    }
+
+    #owners-toggle {
+      color: rgba(255,255,255,.92);
+      font-weight: 600;
+    }
+
+    #btn-home,
+    #btn-admin,
+    #btn-push {
+      min-height: 34px;
+      padding: 6px 12px;
+      border-radius: var(--hb-radius);
+      border: none;
+      box-shadow: var(--hb-shadow);
+      font-weight: 700;
+    }
+    #btn-home,
+    #btn-admin {
+      background: #fff;
+      color: var(--hb-primary-dark);
+    }
+    #btn-push {
+      background: var(--hb-warning);
+      color: #fff;
+    }
+
+    .pill,
+    #team-credit-pill {
+      border: 1px solid rgba(255,255,255,.35);
+      box-shadow: var(--hb-shadow);
+    }
+    #team-credit-pill {
+      background: rgba(255,255,255,.2);
+      color: #fff;
+    }
+
+    #owners-wrap {
+      margin-top: 10px;
+      background: var(--hb-surface);
+      border: 1px solid var(--hb-border);
+      border-radius: var(--hb-radius);
+      box-shadow: var(--hb-shadow);
+      overflow: hidden;
+    }
+    #owners-table th,
+    #owners-table td {
+      border-color: var(--hb-border);
+      color: var(--hb-text);
+    }
+    #owners-table th {
+      background: #f7fafc;
+      color: var(--hb-muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-size: .72rem;
+    }
+
+    #team-alert {
+      background: #fed7d7;
+      border-color: #feb2b2;
+      color: #9b2c2c;
+    }
+
+    #startup-card {
+      background: var(--hb-surface);
+      border: 1px solid var(--hb-border);
+      border-radius: 12px;
+      box-shadow: var(--hb-shadow);
+      color: var(--hb-text);
+    }
+    #startup-card h2 {
+      color: var(--hb-text);
+    }
+    .startup-label,
+    #startup-hint {
+      color: var(--hb-muted);
+    }
+    .startup-select {
+      background: #fff;
+      border: 1px solid var(--hb-border);
+      color: var(--hb-text);
+      border-radius: 8px;
+    }
+    .startup-btn {
+      border-radius: 8px;
+      border: none;
+      box-shadow: var(--hb-shadow);
+      font-weight: 700;
+    }
+    .startup-btn.primary,
+    .startup-btn.secondary {
+      background: var(--hb-primary);
+      color: #fff;
+    }
+    .startup-btn.primary:hover,
+    .startup-btn.secondary:hover {
+      background: var(--hb-primary-dark);
+    }
+    .startup-btn.ghost {
+      background: #e2e8f0;
+      color: var(--hb-text);
+    }
+    #startup-lock-badge {
+      background: #e2e8f0;
+      color: var(--hb-text);
+    }
+    #startup-lock-badge.active {
+      background: #feebc8;
+      color: #7b341e;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --hb-bg: #1a202c;
+        --hb-surface: #2d3748;
+        --hb-text: #e2e8f0;
+        --hb-muted: #a0aec0;
+        --hb-border: #4a5568;
+      }
+
+      #owners-table th {
+        background: #1f2937;
+      }
+      #startup-select,
+      .startup-select,
+      #owners-wrap {
+        background: #1f2937;
+      }
+      .startup-btn.ghost,
+      #startup-lock-badge {
+        background: #4a5568;
+        color: #e2e8f0;
+      }
+      #team-alert {
+        background: rgba(229,62,62,.2);
+        border-color: rgba(229,62,62,.45);
+        color: #feb2b2;
+      }
+    }
   </style>
 </head>
 <body>

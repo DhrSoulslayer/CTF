@@ -91,11 +91,58 @@
       padding: 4px 12px; border: none; border-radius: 4px; cursor: pointer;
       font-size: 0.8rem; font-weight: bold;
     }
+    .toolbar-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .toolbar-group.hidden {
+      display: none;
+    }
+    #panel-teams .row-actions button,
+    #teams-editor button[data-kind="team-del"],
+    #teams-editor button[data-kind="device-del"] {
+      padding: 4px 12px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: bold;
+      min-height: 30px;
+    }
     .btn-danger { background: #c00; color: #fff; }
     .btn-info   { background: #4363d8; color: #fff; }
     .btn-warn   { background: #f58231; color: #fff; }
 
-    #map { flex: 1; min-height: 300px; }
+    #map-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 300px;
+    }
+    #map { width: 100%; height: 100%; min-height: 300px; }
+    #map-overlay {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      z-index: 800;
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      border-radius: 8px;
+      color: #e5edff;
+      padding: 8px 10px;
+      backdrop-filter: blur(3px);
+      pointer-events: none;
+      display: grid;
+      gap: 2px;
+      font-size: 0.84rem;
+      line-height: 1.2;
+    }
+    #map-overlay .overlay-title {
+      font-weight: 700;
+      color: #fff38b;
+    }
 
     .panel-pad { padding: 14px; overflow: auto; }
     .panel h2 { margin-bottom: 10px; font-size: 1rem; color: #dbe7ff; }
@@ -345,7 +392,7 @@
         flex: 1 1 calc(50% - 6px);
         min-width: 0;
       }
-      #map {
+      #map-wrap {
         min-height: 46vh;
       }
       .panel-pad {
@@ -378,6 +425,294 @@
         flex-wrap: wrap;
       }
     }
+
+    /* HeartBeat-style theme overrides */
+    :root {
+      --hb-bg: #f4f6f9;
+      --hb-surface: #ffffff;
+      --hb-text: #2d3748;
+      --hb-muted: #718096;
+      --hb-border: #e2e8f0;
+      --hb-primary: #3182ce;
+      --hb-primary-dark: #2b6cb0;
+      --hb-success: #38a169;
+      --hb-warning: #dd6b20;
+      --hb-danger: #e53e3e;
+      --hb-radius: 8px;
+      --hb-shadow: 0 1px 3px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.08);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--hb-bg);
+      color: var(--hb-text);
+    }
+
+    #header {
+      background: var(--hb-primary);
+      border-bottom: none;
+      color: #fff;
+      box-shadow: var(--hb-shadow);
+      position: relative;
+      overflow: hidden;
+    }
+    #header h1,
+    #header small {
+      color: #fff !important;
+    }
+
+    #status {
+      background: rgba(255,255,255,.28);
+      color: #fff;
+      font-weight: 700;
+    }
+    #status.ok {
+      background: rgba(56,161,105,.92);
+    }
+
+    #sidebar {
+      background: #f8fafc;
+      border-right: 1px solid var(--hb-border);
+    }
+    .menu-btn {
+      background: #fff;
+      color: var(--hb-text);
+      border: 1px solid var(--hb-border);
+      border-radius: var(--hb-radius);
+      box-shadow: var(--hb-shadow);
+      transition: background .15s, border-color .15s, transform .08s;
+    }
+    .menu-btn:hover {
+      background: #f7fafc;
+      border-color: #cbd5e0;
+      transform: translateY(-1px);
+    }
+    .menu-btn.active {
+      background: var(--hb-primary);
+      color: #fff;
+      border-color: var(--hb-primary);
+    }
+
+    #toolbar {
+      background: #fff;
+      border-bottom: 1px solid var(--hb-border);
+      box-shadow: var(--hb-shadow);
+    }
+    #toolbar label,
+    #toolbar span {
+      color: var(--hb-muted) !important;
+    }
+
+    .panel-pad {
+      background: transparent;
+    }
+    .panel h2 {
+      color: var(--hb-text);
+      font-size: 1.25rem;
+    }
+    .hint {
+      color: var(--hb-muted);
+    }
+
+    .table {
+      background: var(--hb-surface);
+      border: 1px solid var(--hb-border);
+      border-radius: var(--hb-radius);
+      overflow: hidden;
+      box-shadow: var(--hb-shadow);
+      margin-bottom: 1rem;
+    }
+    .table th,
+    .table td {
+      border: none;
+      border-bottom: 1px solid var(--hb-border);
+      color: var(--hb-text);
+    }
+    .table th {
+      background: #f7fafc;
+      color: var(--hb-muted);
+      text-transform: uppercase;
+      font-size: .75rem;
+      letter-spacing: .06em;
+    }
+
+    .game-card,
+    .history-list-wrap,
+    .history-detail-wrap,
+    #modal,
+    #danger-modal {
+      background: var(--hb-surface);
+      border: 1px solid var(--hb-border);
+      box-shadow: var(--hb-shadow);
+      color: var(--hb-text);
+    }
+    .game-card h3,
+    #danger-modal h2,
+    #modal h2 {
+      color: var(--hb-text);
+    }
+
+    #modal input,
+    .input,
+    #input-capture-hold-sec,
+    #input-initial-credits,
+    #toolbar select {
+      background: #fff !important;
+      border: 1px solid var(--hb-border) !important;
+      color: var(--hb-text) !important;
+      border-radius: 8px;
+    }
+
+    #toolbar button,
+    .btn-info,
+    .btn-warn,
+    .btn-danger,
+    #modal button,
+    #danger-modal button,
+    .game-action-btn {
+      border-radius: 8px;
+      border: none;
+      font-weight: 600;
+      box-shadow: var(--hb-shadow);
+    }
+    .btn-info,
+    #modal-ok,
+    #danger-confirm {
+      background: var(--hb-primary);
+      color: #fff;
+    }
+    .btn-info:hover,
+    #modal-ok:hover,
+    #danger-confirm:hover {
+      background: var(--hb-primary-dark);
+    }
+    .btn-warn {
+      background: var(--hb-warning);
+      color: #fff;
+    }
+    .btn-danger,
+    #danger-cancel,
+    #modal-cancel {
+      background: var(--hb-danger);
+      color: #fff;
+    }
+
+    #danger-slider-wrap {
+      background: #f7fafc;
+      border: 1px solid var(--hb-border);
+    }
+    #map-overlay {
+      background: rgba(45, 55, 72, 0.86);
+      border-color: rgba(226, 232, 240, 0.4);
+      color: #edf2f7;
+    }
+    #danger-message,
+    #danger-slider-label,
+    #danger-hint,
+    #capture-hold-lock-info,
+    #initial-credits-lock-info,
+    #game-mode-lock-info {
+      color: var(--hb-muted) !important;
+    }
+
+    #menu-toggle {
+      display: none;
+    }
+    #menu-overlay {
+      display: none;
+    }
+
+    @media (max-width: 1000px) {
+      #main {
+        position: relative;
+      }
+      #menu-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 38px;
+      }
+      #sidebar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: min(78vw, 320px);
+        max-width: 320px;
+        z-index: 1200;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        transform: translateX(-108%);
+        transition: transform .18s ease;
+      }
+      #content {
+        width: 100%;
+      }
+      #menu-overlay {
+        display: block;
+        position: absolute;
+        inset: 0;
+        z-index: 1100;
+        background: rgba(15, 23, 42, 0.4);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity .18s ease;
+      }
+      body.mobile-menu-open #sidebar {
+        transform: translateX(0);
+      }
+      body.mobile-menu-open #menu-overlay {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      #toolbar {
+        gap: 6px;
+      }
+      #map-overlay {
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        font-size: 0.8rem;
+      }
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --hb-bg: #1a202c;
+        --hb-surface: #2d3748;
+        --hb-text: #e2e8f0;
+        --hb-muted: #a0aec0;
+        --hb-border: #4a5568;
+      }
+
+      #sidebar {
+        background: #1f2937;
+        border-right-color: var(--hb-border);
+      }
+      .menu-btn {
+        background: #2d3748;
+        color: var(--hb-text);
+        border-color: var(--hb-border);
+      }
+      .menu-btn:hover {
+        background: #374151;
+      }
+      .table th {
+        background: #1f2937;
+      }
+      #toolbar,
+      #toolbar select,
+      #modal input,
+      .input,
+      #input-capture-hold-sec,
+      #input-initial-credits,
+      #danger-slider-wrap {
+        background: #1f2937 !important;
+        color: var(--hb-text) !important;
+        border-color: var(--hb-border) !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -390,36 +725,60 @@
 
 <div id="main">
   <aside id="sidebar">
-    <button class="menu-btn active" id="menu-polygons">Polygonen aanpassen</button>
+    <button class="menu-btn active" id="menu-overview">Overzicht</button>
+    <button class="menu-btn" id="menu-polygons">Gebieden aanpassen</button>
     <button class="menu-btn" id="menu-scores">Scores</button>
     <button class="menu-btn" id="menu-teams">Teams</button>
     <button class="menu-btn" id="menu-game">Spelbeheer</button>
     <button class="menu-btn" id="menu-modes">Spelmodi</button>
     <button class="menu-btn" id="menu-history">History</button>
   </aside>
+  <div id="menu-overlay" aria-hidden="true"></div>
 
   <div id="content">
     <div id="toolbar">
-      <label>Selected territory:</label>
-      <button class="btn-info" id="btn-home">⌂ Home</button>
-      <button class="btn-info" id="btn-map-default-jump">⌖ Default</button>
-      <button class="btn-warn" id="btn-map-default-save">Save view as default</button>
-      <button class="btn-info" id="btn-export-polygons">Export polygons</button>
-      <button class="btn-warn" id="btn-import-polygons">Import polygons</button>
-      <input id="input-import-polygons" type="file" accept="application/json,.json" style="display:none" />
-      <span id="map-default-info" style="color:#9fd3ff;font-size:0.82rem">Default: --</span>
-      <span id="selected-name" style="color:#ff0;font-weight:bold;font-size:0.85rem">(none)</span>
-      <span id="selected-area" style="color:#9fd3ff;font-size:0.85rem">Area: --</span>
-      <span id="cursor-coords" style="color:#9fd3ff;font-size:0.85rem">Cursor: --, --</span>
-      <button class="btn-warn" id="btn-rename" disabled>Rename</button>
-      <button class="btn-danger" id="btn-delete" disabled>Delete</button>
-      <button class="btn-info" id="btn-refresh">↺ Refresh</button>
-      <span style="margin-left:8px;color:#aee;font-size:0.85rem">Game:</span>
-      <span id="game-status" style="font-weight:bold;font-size:0.85rem">unknown</span>
+      <button class="btn-info" id="menu-toggle" aria-controls="sidebar" aria-expanded="false">☰ Menu</button>
+      <div id="toolbar-polygons" class="toolbar-group hidden">
+        <label>Selected territory:</label>
+        <button class="btn-info" id="btn-export-polygons">Export polygons</button>
+        <button class="btn-warn" id="btn-import-polygons">Import polygons</button>
+        <input id="input-import-polygons" type="file" accept="application/json,.json" style="display:none" />
+        <button class="btn-warn" id="btn-rename" disabled>Rename</button>
+        <button class="btn-danger" id="btn-delete" disabled>Delete</button>
+        <button class="btn-info" id="btn-refresh">↺ Refresh</button>
+      </div>
+      <div id="toolbar-game" class="toolbar-group">
+        <span style="margin-left:8px;color:#aee;font-size:0.85rem">Game:</span>
+        <span id="game-status" style="font-weight:bold;font-size:0.85rem">unknown</span>
+        <button class="btn-info" id="btn-game-start">Start</button>
+        <button class="btn-warn" id="btn-game-pause">Pause</button>
+        <button class="btn-danger" id="btn-game-stop">Stop</button>
+        <button class="btn-danger" id="btn-game-reset">Reset</button>
+      </div>
     </div>
 
     <section class="panel active" id="panel-polygons">
-      <div id="map"></div>
+      <div id="map-wrap">
+        <div id="map"></div>
+        <div id="map-overlay">
+          <div id="map-default-info">Default: --</div>
+          <div id="selected-name" class="overlay-title">(none)</div>
+          <div id="selected-area">Area: --</div>
+          <div id="map-trackers-info">Trackers actief: 0</div>
+          <div id="map-team-credits" style="display:none">Credits: --</div>
+          <div id="cursor-coords">Cursor: --, --</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel panel-pad" id="panel-map">
+      <h2>Kaart</h2>
+      <p class="hint">Beheer de standaard kaartweergave voor Home en nieuwe sessies.</p>
+      <div class="row-actions" style="flex-wrap:wrap">
+        <button class="btn-info" id="btn-home">⌂ Home</button>
+        <button class="btn-info" id="btn-map-default-jump">⌖ Default</button>
+        <button class="btn-warn" id="btn-map-default-save">Save view as default</button>
+      </div>
     </section>
 
     <section class="panel panel-pad" id="panel-scores">
@@ -459,12 +818,7 @@
       <div class="game-grid">
         <div class="game-card">
           <h3>Rondestatus</h3>
-          <div class="row-actions">
-            <button class="btn-info game-action-btn" id="btn-game-start">Start</button>
-            <button class="btn-warn game-action-btn" id="btn-game-pause">Pause</button>
-            <button class="btn-danger game-action-btn" id="btn-game-stop">Stop</button>
-            <button class="btn-danger game-action-btn" id="btn-game-reset">Reset</button>
-          </div>
+          <div class="hint">Gebruik de knoppen in de bovenste menubalk voor start/pause/stop/reset.</div>
         </div>
         <div class="game-card">
           <h3>Claim Tijd</h3>
@@ -607,7 +961,18 @@ const drawControl = new L.Control.Draw({
     remove: false, // we handle delete via toolbar button
   },
 });
-map.addControl(drawControl);
+let drawControlEnabled = false;
+
+function setMapEditMode(enabled) {
+  const next = Boolean(enabled);
+  if (next === drawControlEnabled) return;
+  drawControlEnabled = next;
+  if (next) {
+    map.addControl(drawControl);
+  } else {
+    map.removeControl(drawControl);
+  }
+}
 
 // ── State ──────────────────────────────────────────────────────────────────────
 const gfLayers  = {};   // name → L.Polygon
@@ -628,6 +993,21 @@ let selectedHistoryId = null;
 let historyMap = null;
 let historyLayerGroup = null;
 let teamsEditorFocus = null;
+let activePanel = 'overview';
+let suspendLiveUpdates = false;
+let pendingLiveRefresh = false;
+let currentTeamCredits = {};
+
+function isNarrowViewport() {
+  return window.matchMedia('(max-width: 1000px)').matches;
+}
+
+function setMobileMenuOpen(open) {
+  const next = Boolean(open) && isNarrowViewport();
+  document.body.classList.toggle('mobile-menu-open', next);
+  const toggle = document.getElementById('menu-toggle');
+  toggle.setAttribute('aria-expanded', next ? 'true' : 'false');
+}
 
 function applyCaptureHoldMs(ms) {
   const next = Number(ms);
@@ -649,6 +1029,32 @@ function applyGameMode(mode) {
   document.querySelectorAll('input[name="game-mode"]').forEach(input => {
     input.checked = input.value === gameMode;
   });
+  renderMapTeamCredits(currentTeamCredits);
+}
+
+function renderMapTrackersInfo() {
+  const count = Object.keys(markerLayers).length;
+  document.getElementById('map-trackers-info').textContent = `Trackers actief: ${count}`;
+}
+
+function renderMapTeamCredits(teamCredits = {}) {
+  currentTeamCredits = teamCredits || {};
+  const el = document.getElementById('map-team-credits');
+  if (gameMode !== 'credits') {
+    el.style.display = 'none';
+    el.textContent = 'Credits: --';
+    return;
+  }
+
+  const rows = teams.map(t => ({
+    name: t.name,
+    value: Math.max(0, Math.round(Number(currentTeamCredits[t.name]) || 0)),
+  }));
+  const text = rows.length
+    ? rows.map(row => `${row.name} ${row.value}`).join(' | ')
+    : '--';
+  el.style.display = 'block';
+  el.textContent = `Credits: ${text}`;
 }
 
 function updateCaptureHoldEditability() {
@@ -1067,8 +1473,13 @@ function setTeamsData(nextTeams, nextColors) {
 }
 
 function showPanel(panelId) {
+  const previousPanel = activePanel;
+  activePanel = panelId;
+
   const panelMap = {
+    overview: 'panel-polygons',
     polygons: 'panel-polygons',
+    map: 'panel-map',
     scores: 'panel-scores',
     teams: 'panel-teams',
     game: 'panel-game',
@@ -1078,13 +1489,16 @@ function showPanel(panelId) {
   Object.values(panelMap).forEach(id => {
     document.getElementById(id).classList.toggle('active', id === panelMap[panelId]);
   });
+  document.getElementById('menu-overview').classList.toggle('active', panelId === 'overview');
   document.getElementById('menu-polygons').classList.toggle('active', panelId === 'polygons');
   document.getElementById('menu-scores').classList.toggle('active', panelId === 'scores');
   document.getElementById('menu-teams').classList.toggle('active', panelId === 'teams');
   document.getElementById('menu-game').classList.toggle('active', panelId === 'game');
   document.getElementById('menu-modes').classList.toggle('active', panelId === 'modes');
   document.getElementById('menu-history').classList.toggle('active', panelId === 'history');
-  if (panelId === 'polygons') {
+  document.getElementById('toolbar-polygons').classList.toggle('hidden', panelId !== 'polygons');
+  setMapEditMode(panelId === 'polygons');
+  if (panelId === 'polygons' || panelId === 'overview') {
     setTimeout(() => map.invalidateSize(), 0);
   }
   if (panelId === 'scores') refreshScoresPanel();
@@ -1094,6 +1508,21 @@ function showPanel(panelId) {
     ensureHistoryMap();
     loadHistoryPanel();
     setTimeout(() => historyMap?.invalidateSize(), 0);
+  }
+
+  if (panelId === 'teams') {
+    suspendLiveUpdates = true;
+  }
+  if (previousPanel === 'teams' && panelId !== 'teams') {
+    suspendLiveUpdates = false;
+    if (pendingLiveRefresh) {
+      pendingLiveRefresh = false;
+      refreshLiveStateFromServer();
+    }
+  }
+
+  if (isNarrowViewport()) {
+    setMobileMenuOpen(false);
   }
 }
 
@@ -1114,6 +1543,8 @@ function renderScoresPanel(scores = {}, teamCredits = {}, owners = {}, occupancy
   const ownersBody = document.getElementById('owners-body-admin');
   const occupancyHead = document.getElementById('occupancy-head-admin');
   const occupancyBody = document.getElementById('occupancy-body-admin');
+
+  renderMapTeamCredits(teamCredits);
 
   const sortedTeams = teams.slice().sort((a, b) => (scores[b.name] || 0) - (scores[a.name] || 0));
   scoreBody.innerHTML = sortedTeams.map(t => `
@@ -1367,10 +1798,6 @@ function rememberTeamsEditorFocus(target) {
   if (!kind || !Number.isInteger(idx)) return;
 
   teamsEditorFocus = { kind, idx };
-  if (typeof target.selectionStart === 'number' && typeof target.selectionEnd === 'number') {
-    teamsEditorFocus.start = target.selectionStart;
-    teamsEditorFocus.end = target.selectionEnd;
-  }
 }
 
 function restoreTeamsEditorFocusIfNeeded() {
@@ -1385,13 +1812,6 @@ function restoreTeamsEditorFocusIfNeeded() {
   if (!target) return;
 
   target.focus({ preventScroll: true });
-  if (
-    typeof target.setSelectionRange === 'function' &&
-    Number.isInteger(teamsEditorFocus.start) &&
-    Number.isInteger(teamsEditorFocus.end)
-  ) {
-    target.setSelectionRange(teamsEditorFocus.start, teamsEditorFocus.end);
-  }
 }
 
 async function loadTeamsEditor() {
@@ -1439,11 +1859,53 @@ async function loadGeofences() {
 function clearAllMarkers() {
   Object.values(markerLayers).forEach(m => map.removeLayer(m));
   Object.keys(markerLayers).forEach(id => delete markerLayers[id]);
+  renderMapTrackersInfo();
 }
 
 function clearAllClaimClocks() {
   Object.values(geofenceClaimClocks).forEach(c => map.removeLayer(c.marker));
   Object.keys(geofenceClaimClocks).forEach(id => delete geofenceClaimClocks[id]);
+}
+
+function applySnapshotPayload(msg) {
+  // Clear & reload
+  Object.keys(gfLayers).forEach(n => { drawnItems.removeLayer(gfLayers[n]); delete gfLayers[n]; });
+  clearAllClaimClocks();
+  clearAllMarkers();
+  setTeamsData(msg.teams, msg.teamColors);
+  if (!hasAppliedServerMapDefault) {
+    applyMapDefaultView(msg.mapDefault || mapDefaultView, true);
+    hasAppliedServerMapDefault = true;
+  } else {
+    applyMapDefaultView(msg.mapDefault || mapDefaultView, false);
+  }
+  (msg.geofences || []).forEach(gf => addGfLayer(gf));
+  maybeFitMapToPolygonsOnce();
+  Object.values(msg.positions || {}).forEach(p => upsertMarker(p));
+  renderMapTrackersInfo();
+  setGameStatusUI(msg.game?.status || 'unknown');
+  applyGameMode(msg.game?.mode || '');
+  applyCaptureHoldMs(msg.game?.captureHoldMs || captureHoldMs);
+  applyInitialTeamCredits(msg.game?.initialTeamCredits ?? initialTeamCredits);
+  renderScoresPanel(
+    msg.scores || {},
+    msg.teamCredits || {},
+    msg.owners || {},
+    msg.occupancyMs || {},
+    msg.occupancyByTerritory || {}
+  );
+  if (isHistoryPanelActive()) {
+    loadHistoryPanel();
+  }
+}
+
+async function refreshLiveStateFromServer() {
+  try {
+    const state = await (await fetch('/api/state')).json();
+    applySnapshotPayload({ type: 'snapshot', ...state });
+  } catch (err) {
+    console.warn('Failed to refresh live state after teams edit:', err.message);
+  }
 }
 
 // ── Leaflet.draw events ────────────────────────────────────────────────────────
@@ -1587,6 +2049,19 @@ document.getElementById('btn-game-mode-save').addEventListener('click', async ()
   }
 });
 document.getElementById('btn-scores-refresh').addEventListener('click', refreshScoresPanel);
+document.getElementById('menu-toggle').addEventListener('click', () => {
+  const currentlyOpen = document.body.classList.contains('mobile-menu-open');
+  setMobileMenuOpen(!currentlyOpen);
+});
+document.getElementById('menu-overlay').addEventListener('click', () => {
+  setMobileMenuOpen(false);
+});
+window.addEventListener('resize', () => {
+  if (!isNarrowViewport()) {
+    setMobileMenuOpen(false);
+  }
+});
+document.getElementById('menu-overview').addEventListener('click', () => showPanel('overview'));
 document.getElementById('menu-polygons').addEventListener('click', () => showPanel('polygons'));
 document.getElementById('menu-scores').addEventListener('click', () => showPanel('scores'));
 document.getElementById('menu-teams').addEventListener('click', () => showPanel('teams'));
@@ -1636,9 +2111,15 @@ document.getElementById('teams-editor').addEventListener('click', e => {
   const idx = Number(e.target.dataset.idx);
   const kind = e.target.dataset.kind;
   if (!Number.isInteger(idx)) return;
-  if (kind === 'team-del') teamRows.splice(idx, 1);
-  if (kind === 'device-del') deviceRows.splice(idx, 1);
-  renderTeamsEditor();
+  if (kind === 'team-del') {
+    teamRows.splice(idx, 1);
+    renderTeamsEditor();
+    return;
+  }
+  if (kind === 'device-del') {
+    deviceRows.splice(idx, 1);
+    renderTeamsEditor();
+  }
 });
 document.addEventListener('pointerdown', e => {
   const isTeamsElement = e.target?.closest && e.target.closest('#teams-editor');
@@ -1719,6 +2200,7 @@ function upsertMarker(pos) {
     .bindPopup(makePopup())
     .bindTooltip(name, { permanent: true, offset: [8, 0] });
   markerLayers[deviceId] = marker;
+  renderMapTrackersInfo();
 }
 
 // ── Cursor coordinates ─────────────────────────────────────────────────────────
@@ -1753,36 +2235,14 @@ function connect() {
   ws.onmessage = evt => {
     const msg = JSON.parse(evt.data);
 
+    if (suspendLiveUpdates) {
+      pendingLiveRefresh = true;
+      return;
+    }
+
     switch (msg.type) {
       case 'snapshot':
-        // Clear & reload
-        Object.keys(gfLayers).forEach(n => { drawnItems.removeLayer(gfLayers[n]); delete gfLayers[n]; });
-        clearAllClaimClocks();
-        clearAllMarkers();
-        setTeamsData(msg.teams, msg.teamColors);
-        if (!hasAppliedServerMapDefault) {
-          applyMapDefaultView(msg.mapDefault || mapDefaultView, true);
-          hasAppliedServerMapDefault = true;
-        } else {
-          applyMapDefaultView(msg.mapDefault || mapDefaultView, false);
-        }
-        (msg.geofences || []).forEach(gf => addGfLayer(gf));
-        maybeFitMapToPolygonsOnce();
-        Object.values(msg.positions || {}).forEach(p => upsertMarker(p));
-        setGameStatusUI(msg.game?.status || 'unknown');
-        applyGameMode(msg.game?.mode || '');
-        applyCaptureHoldMs(msg.game?.captureHoldMs || captureHoldMs);
-        applyInitialTeamCredits(msg.game?.initialTeamCredits ?? initialTeamCredits);
-        renderScoresPanel(
-          msg.scores || {},
-          msg.teamCredits || {},
-          msg.owners || {},
-          msg.occupancyMs || {},
-          msg.occupancyByTerritory || {}
-        );
-        if (isHistoryPanelActive()) {
-          loadHistoryPanel();
-        }
+        applySnapshotPayload(msg);
         break;
 
       case 'position':
@@ -1833,12 +2293,11 @@ function connect() {
         }
         break;
     }
-
-    restoreTeamsEditorFocusIfNeeded();
   };
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
+showPanel('overview');
 connect();
 setInterval(refreshClaimClocks, 1000);
 
