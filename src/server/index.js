@@ -192,8 +192,8 @@ function requireAdminPageRequest(req, res, next) {
   if (refererRaw) {
     try {
       const referer = new URL(refererRaw);
-      if (!isAllowedOrigin(`${referer.protocol}//${referer.host}`) || !referer.pathname.startsWith('/admin')) {
-        return res.status(403).json({ error: 'Request must come from the admin page' });
+      if (!isAllowedOrigin(`${referer.protocol}//${referer.host}`)) {
+        return res.status(403).json({ error: 'Request origin is not allowed' });
       }
       return next();
     } catch {
