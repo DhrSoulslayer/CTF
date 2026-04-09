@@ -627,6 +627,7 @@ let historyRows = [];
 let selectedHistoryId = null;
 let historyMap = null;
 let historyLayerGroup = null;
+let teamsEditorFocus = null;
 
 function applyCaptureHoldMs(ms) {
   const next = Number(ms);
@@ -1088,6 +1089,7 @@ function showPanel(panelId) {
   }
   if (panelId === 'scores') refreshScoresPanel();
   if (panelId === 'teams') loadTeamsEditor();
+  if (panelId !== 'teams') teamsEditorFocus = null;
   if (panelId === 'history') {
     ensureHistoryMap();
     loadHistoryPanel();
@@ -1353,6 +1355,43 @@ function renderTeamsEditor() {
       </table>
     </div>
   `;
+
+  // Keep cursor/focus stable across rerenders and live updates.
+  setTimeout(restoreTeamsEditorFocusIfNeeded, 0);
+}
+
+function rememberTeamsEditorFocus(target) {
+  if (!target?.dataset) return;
+  const kind = target.dataset.kind;
+  const idx = Number(target.dataset.idx);
+  if (!kind || !Number.isInteger(idx)) return;
+
+  teamsEditorFocus = { kind, idx };
+  if (typeof target.selectionStart === 'number' && typeof target.selectionEnd === 'number') {
+    teamsEditorFocus.start = target.selectionStart;
+    teamsEditorFocus.end = target.selectionEnd;
+  }
+}
+
+function restoreTeamsEditorFocusIfNeeded() {
+  if (!document.getElementById('panel-teams').classList.contains('active')) return;
+  if (!teamsEditorFocus) return;
+
+  const container = document.getElementById('teams-editor');
+  if (container.contains(document.activeElement)) return;
+
+  const selector = `[data-kind="${teamsEditorFocus.kind}"][data-idx="${teamsEditorFocus.idx}"]`;
+  const target = container.querySelector(selector);
+  if (!target) return;
+
+  target.focus({ preventScroll: true });
+  if (
+    typeof target.setSelectionRange === 'function' &&
+    Number.isInteger(teamsEditorFocus.start) &&
+    Number.isInteger(teamsEditorFocus.end)
+  ) {
+    target.setSelectionRange(teamsEditorFocus.start, teamsEditorFocus.end);
+  }
 }
 
 async function loadTeamsEditor() {
@@ -1573,6 +1612,7 @@ document.getElementById('history-body').addEventListener('click', e => {
   loadHistoryDetail(id);
 });
 document.getElementById('teams-editor').addEventListener('input', e => {
+  rememberTeamsEditorFocus(e.target);
   const idx = Number(e.target.dataset.idx);
   const kind = e.target.dataset.kind;
   if (!Number.isInteger(idx)) return;
@@ -1582,18 +1622,30 @@ document.getElementById('teams-editor').addEventListener('input', e => {
   if (kind === 'device-team') deviceRows[idx].team = e.target.value;
 });
 document.getElementById('teams-editor').addEventListener('change', e => {
+  rememberTeamsEditorFocus(e.target);
   const idx = Number(e.target.dataset.idx);
   const kind = e.target.dataset.kind;
   if (!Number.isInteger(idx)) return;
   if (kind === 'device-team') deviceRows[idx].team = e.target.value;
 });
+document.getElementById('teams-editor').addEventListener('focusin', e => {
+  rememberTeamsEditorFocus(e.target);
+});
 document.getElementById('teams-editor').addEventListener('click', e => {
+  rememberTeamsEditorFocus(e.target);
   const idx = Number(e.target.dataset.idx);
   const kind = e.target.dataset.kind;
   if (!Number.isInteger(idx)) return;
   if (kind === 'team-del') teamRows.splice(idx, 1);
   if (kind === 'device-del') deviceRows.splice(idx, 1);
   renderTeamsEditor();
+});
+document.addEventListener('pointerdown', e => {
+  const isTeamsElement = e.target?.closest && e.target.closest('#teams-editor');
+  const isTeamsMenuButton = e.target?.closest && e.target.closest('#menu-teams');
+  if (!isTeamsElement && !isTeamsMenuButton) {
+    teamsEditorFocus = null;
+  }
 });
 
 document.getElementById('btn-game-start').addEventListener('click', async () => {
@@ -1781,6 +1833,8 @@ function connect() {
         }
         break;
     }
+
+    restoreTeamsEditorFocusIfNeeded();
   };
 }
 
