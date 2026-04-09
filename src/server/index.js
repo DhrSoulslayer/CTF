@@ -11,6 +11,7 @@ const push       = require('./push');
 
 const app    = express();
 const server = http.createServer(app);
+app.set('trust proxy', true);
 
 // ── WebSocket server (path-based upgrade) ─────────────────────────────────────
 const wss = new WebSocket.Server({ noServer: true });
@@ -140,22 +141,43 @@ function adminAuth(req, res, next) {
 }
 
 function requireAdminPageRequest(req, res, next) {
-  const host = req.headers.host;
-  const expectedOrigin = `${req.protocol}://${host}`;
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  const proto = forwardedProto || req.protocol;
+  const host = forwardedHost || req.headers.host;
+  const expectedOrigin = `${proto}://${host}`;
   const refererRaw = req.headers.referer || '';
+  const originRaw = req.headers.origin || '';
 
-  if (!refererRaw) {
-    return res.status(403).json({ error: 'Admin page referer is required' });
+  if (!host) {
+    return res.status(403).json({ error: 'Missing host header' });
+  }
+
+  if (!refererRaw && !originRaw) {
+    return res.status(403).json({ error: 'Admin page origin/referer is required' });
+  }
+
+  if (refererRaw) {
+    try {
+      const referer = new URL(refererRaw);
+      const refererOrigin = `${referer.protocol}//${referer.host}`;
+      if (refererOrigin !== expectedOrigin || !referer.pathname.startsWith('/admin')) {
+        return res.status(403).json({ error: 'Request must come from the admin page' });
+      }
+      return next();
+    } catch {
+      return res.status(403).json({ error: 'Invalid referer header' });
+    }
   }
 
   try {
-    const referer = new URL(refererRaw);
-    const refererOrigin = `${referer.protocol}//${referer.host}`;
-    if (refererOrigin !== expectedOrigin || !referer.pathname.startsWith('/admin')) {
-      return res.status(403).json({ error: 'Request must come from the admin page' });
+    const origin = new URL(originRaw);
+    const originValue = `${origin.protocol}//${origin.host}`;
+    if (originValue !== expectedOrigin) {
+      return res.status(403).json({ error: 'Request origin is not allowed' });
     }
   } catch {
-    return res.status(403).json({ error: 'Invalid referer header' });
+    return res.status(403).json({ error: 'Invalid origin header' });
   }
 
   next();
