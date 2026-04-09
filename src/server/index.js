@@ -141,6 +141,12 @@ function adminAuth(req, res, next) {
 }
 
 function requireAdminPageRequest(req, res, next) {
+  const strictOriginCheck = String(process.env.STRICT_ADMIN_ORIGIN_CHECK || '').trim() === '1';
+  if (!strictOriginCheck) {
+    // Basic Auth already protects admin endpoints; disable brittle origin checks by default for reverse proxies.
+    return next();
+  }
+
   const fetchSite = String(req.headers['sec-fetch-site'] || '').trim().toLowerCase();
   const forwardedHostRaw = String(req.headers['x-forwarded-host'] || '');
   const originalHostRaw = String(req.headers['x-original-host'] || '');

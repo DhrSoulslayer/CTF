@@ -1162,6 +1162,10 @@ function polygonAreaM2FromLayer(layer) {
 
 function formatAreaM2(areaM2) {
   const value = Number(areaM2) || 0;
+  if (value > 1000) {
+    const km2 = value / 1_000_000;
+    return `${km2.toLocaleString('nl-NL', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} km²`;
+  }
   return `${Math.round(value).toLocaleString('nl-NL')} m²`;
 }
 
