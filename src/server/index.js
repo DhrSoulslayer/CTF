@@ -141,9 +141,20 @@ function adminAuth(req, res, next) {
 }
 
 function requireAdminPageRequest(req, res, next) {
+  const fetchSite = String(req.headers['sec-fetch-site'] || '').trim().toLowerCase();
   const forwardedHostRaw = String(req.headers['x-forwarded-host'] || '');
+  const originalHostRaw = String(req.headers['x-original-host'] || '');
+  const forwardedServerRaw = String(req.headers['x-forwarded-server'] || '');
+  const realHostRaw = String(req.headers['x-real-host'] || '');
+  const authorityRaw = String(req.headers[':authority'] || '');
+  const configuredPublicHostsRaw = String(process.env.ADMIN_PUBLIC_HOSTS || '');
   const candidateHosts = [
     ...forwardedHostRaw.split(',').map(v => v.trim()).filter(Boolean),
+    ...originalHostRaw.split(',').map(v => v.trim()).filter(Boolean),
+    ...forwardedServerRaw.split(',').map(v => v.trim()).filter(Boolean),
+    ...realHostRaw.split(',').map(v => v.trim()).filter(Boolean),
+    ...configuredPublicHostsRaw.split(',').map(v => v.trim()).filter(Boolean),
+    authorityRaw,
     String(req.headers.host || '').trim(),
   ].filter(Boolean);
 
@@ -155,6 +166,7 @@ function requireAdminPageRequest(req, res, next) {
   }
 
   if (!refererRaw && !originRaw) {
+    if (fetchSite === 'same-origin') return next();
     return res.status(403).json({ error: 'Admin page origin/referer is required' });
   }
 
@@ -193,6 +205,7 @@ function requireAdminPageRequest(req, res, next) {
     try {
       const referer = new URL(refererRaw);
       if (!isAllowedOrigin(`${referer.protocol}//${referer.host}`)) {
+        if (fetchSite === 'same-origin') return next();
         return res.status(403).json({ error: 'Request origin is not allowed' });
       }
       return next();
@@ -203,6 +216,7 @@ function requireAdminPageRequest(req, res, next) {
 
   try {
     if (!isAllowedOrigin(originRaw)) {
+      if (fetchSite === 'same-origin') return next();
       return res.status(403).json({ error: 'Request origin is not allowed' });
     }
   } catch {
