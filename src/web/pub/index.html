@@ -207,6 +207,16 @@
       font-size: 0.8rem;
       line-height: 1.35;
     }
+    #startup-push-advice {
+      margin-top: 8px;
+      padding: 7px 9px;
+      border-radius: 6px;
+      background: #101e38;
+      border: 1px solid #38537f;
+      color: #dbe7ff;
+      font-size: 0.78rem;
+      line-height: 1.35;
+    }
     #startup-lock-badge {
       display: inline-block;
       margin-top: 8px;
@@ -375,6 +385,11 @@
       background: #feebc8;
       color: #7b341e;
     }
+    #startup-push-advice {
+      background: #f7fafc;
+      border-color: var(--hb-border);
+      color: var(--hb-text);
+    }
 
     @media (prefers-color-scheme: dark) {
       :root {
@@ -402,6 +417,9 @@
         background: rgba(229,62,62,.2);
         border-color: rgba(229,62,62,.45);
         color: #feb2b2;
+      }
+      #startup-push-advice {
+        background: #1f2937;
       }
     }
   </style>
@@ -441,6 +459,7 @@
     </div>
     <div id="startup-lock-badge">Team lock uit</div>
     <div id="startup-hint">Kies eerst je team. Met push ontvang je meldingen wanneer jouw team een gebied verliest.</div>
+    <div id="startup-push-advice">Push-tips laden...</div>
   </div>
 </div>
 
@@ -792,6 +811,30 @@ function applyStartupTeamLock() {
   }
 }
 
+function getPushPlatformAdvice() {
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+  const isMac = /Macintosh|Mac OS X/i.test(ua);
+  const isSafari = /Safari/i.test(ua) && !/Chrome|CriOS|Edg\//i.test(ua);
+
+  if (isIOS) {
+    return 'iOS: installeer deze site eerst als app (Deel > Zet op beginscherm), open daarna de app en zet dan Push aan.';
+  }
+  if (isAndroid) {
+    return 'Android: push werkt het meest stabiel na installeren als app (Toevoegen aan startscherm). Open daarna de app en zet Push aan.';
+  }
+  if (isMac && isSafari) {
+    return 'Safari op macOS: push werkt in Safari zelf (met meldingsrechten). PWA-install is niet vereist.';
+  }
+  return 'Desktop Chrome/Edge: push werkt direct in de browser na toestaan van meldingen. PWA-install is optioneel.';
+}
+
+function renderPushPlatformAdvice() {
+  const el = document.getElementById('startup-push-advice');
+  el.textContent = getPushPlatformAdvice();
+}
+
 function requireSelectedTeam() {
   const team = String(document.getElementById('startup-team').value || '').trim();
   if (!team) {
@@ -926,6 +969,27 @@ function urlBase64ToUint8Array(base64String) {
   return output;
 }
 
+function arrayBufferToBase64Url(buffer) {
+  if (!buffer) return '';
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function serializePushSubscription(subscription) {
+  const fromJson = typeof subscription?.toJSON === 'function' ? subscription.toJSON() : {};
+  const endpoint = String(fromJson?.endpoint || subscription?.endpoint || '').trim();
+  const p256dh = String(fromJson?.keys?.p256dh || '').trim() || arrayBufferToBase64Url(subscription?.getKey?.('p256dh'));
+  const auth = String(fromJson?.keys?.auth || '').trim() || arrayBufferToBase64Url(subscription?.getKey?.('auth'));
+  return {
+    endpoint,
+    keys: { p256dh, auth },
+  };
+}
+
 async function syncPushButtonState() {
   const btn = document.getElementById('btn-push');
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -973,22 +1037,26 @@ async function enablePushForTeam(team) {
     });
   }
 
-  const serialized = typeof subscription.toJSON === 'function'
-    ? subscription.toJSON()
-    : {
-      endpoint: subscription.endpoint,
-      keys: {
-        p256dh: subscription.getKey ? btoa(String.fromCharCode(...new Uint8Array(subscription.getKey('p256dh') || new Uint8Array()))) : '',
-        auth: subscription.getKey ? btoa(String.fromCharCode(...new Uint8Array(subscription.getKey('auth') || new Uint8Array()))) : '',
-      },
-    };
+  const serialized = serializePushSubscription(subscription);
+  if (!serialized.endpoint || !serialized.keys.p256dh || !serialized.keys.auth) {
+    throw new Error('ongeldige push subscription ontvangen van browser');
+  }
 
   const r = await fetch('/api/push/subscribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...serialized, team }),
+    body: JSON.stringify({ subscription: serialized, team }),
   });
-  if (!r.ok) throw new Error(`subscribe failed (${r.status})`);
+  if (!r.ok) {
+    let details = '';
+    try {
+      const body = await r.json();
+      details = body?.error ? `: ${body.error}` : '';
+    } catch {
+      details = '';
+    }
+    throw new Error(`subscribe failed (${r.status})${details}`);
+  }
   btn.textContent = '🔔 Push aan';
 }
 
@@ -1016,7 +1084,7 @@ document.getElementById('btn-push').addEventListener('click', async () => {
     }
     await enablePushForTeam(team);
   } catch (err) {
-    alert('Push configureren mislukt: ' + err.message);
+    alert('Push configureren mislukt: ' + err.message + '\n\nTip: ' + getPushPlatformAdvice());
   }
 });
 
@@ -1062,13 +1130,14 @@ document.getElementById('startup-enable-push').addEventListener('click', async (
     await enablePushForTeam(team);
     completeStartupAndConnect();
   } catch (err) {
-    alert('Push activeren mislukt: ' + err.message);
+    alert('Push activeren mislukt: ' + err.message + '\n\nTip: ' + getPushPlatformAdvice());
   }
 });
 
 initStartupFlow().catch(err => {
   document.getElementById('startup-hint').textContent = 'Opstarten mislukt: ' + err.message;
 });
+renderPushPlatformAdvice();
 
 // ── Owners toggle ──────────────────────────────────────────────────────────────
 document.getElementById('owners-toggle').addEventListener('click', function() {

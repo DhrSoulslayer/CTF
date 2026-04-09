@@ -798,7 +798,13 @@ module.exports = {
     const auth = String(subscription?.keys?.auth || '').trim();
     const teamName = String(team || '').trim();
     if (!endpoint || !p256dh || !auth || !teamName) {
-      throw new Error('invalid push subscription payload');
+      const missing = [
+        !endpoint ? 'endpoint' : '',
+        !p256dh ? 'keys.p256dh' : '',
+        !auth ? 'keys.auth' : '',
+        !teamName ? 'team' : '',
+      ].filter(Boolean).join(', ');
+      throw new Error(`invalid push subscription payload (missing: ${missing})`);
     }
     const now = new Date().toISOString();
     db.prepare(`

@@ -204,22 +204,34 @@ app.post('/api/push/subscribe', (req, res) => {
     return res.status(503).json({ error: 'push is not configured on server' });
   }
   try {
-    const team = String(req.body?.team || '').trim();
-    const validTeams = new Set(gameLogic.getTeamConfig().teams.map(t => t.name));
-    if (!validTeams.has(team)) {
+    const teamInput = String(req.body?.team || '').trim();
+    const configuredTeams = gameLogic.getTeamConfig().teams.map(t => String(t.name || '').trim()).filter(Boolean);
+    const team = configuredTeams.find(t => t.toLowerCase() === teamInput.toLowerCase()) || '';
+    if (!team) {
       return res.status(400).json({ error: 'invalid team for push subscription' });
     }
 
-    const endpoint = String(req.body?.endpoint || '').trim();
+    const subInput = (req.body && typeof req.body.subscription === 'object' && req.body.subscription)
+      ? req.body.subscription
+      : req.body;
+    const normalizedSubscription = {
+      endpoint: String(subInput?.endpoint || '').trim(),
+      keys: {
+        p256dh: String(subInput?.keys?.p256dh || '').trim(),
+        auth: String(subInput?.keys?.auth || '').trim(),
+      },
+    };
+
+    const endpoint = normalizedSubscription.endpoint;
     const existing = db.getPushSubscription(endpoint);
     if (existing && existing.team !== team && gameLogic.getGameStatus() === 'running') {
       return res.status(409).json({ error: 'team switching is not allowed while game is running' });
     }
 
-    db.upsertPushSubscription(req.body || {}, team);
+    db.upsertPushSubscription(normalizedSubscription, team);
     res.json({ ok: true });
   } catch (err) {
-    res.status(400).json({ error: err.message || 'invalid subscription payload' });
+    res.status(400).json({ error: err.message || 'invalid subscription payload', code: 'push_subscribe_invalid_payload' });
   }
 });
 
