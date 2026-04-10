@@ -2,6 +2,8 @@
 
 const CACHE_NAME = 'ctf-cache-v2';
 const ASSETS = [
+  '/',
+  '/index.html',
   '/pub/',
   '/pub/index.html',
   '/lib/leaflet.css',
@@ -45,13 +47,13 @@ self.addEventListener('fetch', event => {
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
         }
         return resp;
-      }).catch(() => caches.match('/pub/index.html'));
+      }).catch(() => caches.match('/index.html'));
     })
   );
 });
 
 self.addEventListener('push', event => {
-  let payload = { title: 'CTF', body: 'Nieuwe melding', url: '/pub/' };
+  let payload = { title: 'CTF', body: 'Nieuwe melding', url: '/' };
   if (event.data) {
     try {
       payload = { ...payload, ...event.data.json() };
@@ -65,14 +67,14 @@ self.addEventListener('push', event => {
       body: payload.body,
       icon: '/pub/icon.svg',
       badge: '/pub/icon.svg',
-      data: { url: payload.url || '/pub/' },
+      data: { url: payload.url || '/' },
     })
   );
 });
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || '/pub/';
+  const targetUrl = event.notification.data?.url || '/';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
       const existing = windowClients.find(c => c.url.includes(targetUrl));

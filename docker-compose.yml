@@ -1,7 +1,7 @@
 services:
   ctf:
     container_name: ctf
-    build: .
+    image: dhrsoulslayer/ctf:latest
     ports:
       - "3456:3456"
     environment:

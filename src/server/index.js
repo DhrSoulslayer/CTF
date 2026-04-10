@@ -31,7 +31,7 @@ function broadcast(data) {
   });
 
   if (data?.type === 'capture') {
-    notifyTeamLostTerritory(data).catch(err => {
+    notifyTerritoryClaimed(data).catch(err => {
       console.error('Push notify failed:', err.message);
     });
   }
@@ -42,18 +42,18 @@ function broadcast(data) {
   }
 }
 
-async function notifyTeamLostTerritory(captureEvent) {
+async function notifyTerritoryClaimed(captureEvent) {
   if (!push.isEnabled()) return;
-  if (!captureEvent?.prevTeam || captureEvent.prevTeam === 'Neutral') return;
-  if (captureEvent.prevTeam === captureEvent.team) return;
+  const team = String(captureEvent?.team || '').trim();
+  if (!team || team === 'Neutral') return;
 
-  const subscriptions = db.getPushSubscriptionsByTeam(captureEvent.prevTeam);
+  const subscriptions = db.getAllPushSubscriptions();
   if (!subscriptions.length) return;
 
   const payload = {
-    title: 'Gebied verloren',
-    body: `${captureEvent.prevTeam} is ${captureEvent.geofenceName} kwijt aan ${captureEvent.team}`,
-    url: '/pub/',
+    title: 'Gebied geclaimd!',
+    body: `Team "${team}" heeft het gebied overgenomen!`,
+    url: '/',
   };
 
   for (const sub of subscriptions) {
@@ -77,7 +77,7 @@ async function notifyInsufficientCredits(blockedEvent) {
   const payload = {
     title: 'Onvoldoende credits',
     body: `${team} kan ${blockedEvent.geofenceName} niet claimen: kost ${cost}, saldo ${remaining}`,
-    url: '/pub/',
+    url: '/',
   };
 
   for (const sub of subscriptions) {
@@ -236,15 +236,13 @@ function requireAdminPageRequest(req, res, next) {
 app.use('/lib',   express.static(path.join(__dirname, '../web/lib')));
 app.use('/pub',   express.static(path.join(__dirname, '../web/pub')));
 app.use('/admin', adminAuth, express.static(path.join(__dirname, '../web/admin')));
+app.use('/', express.static(path.join(__dirname, '../web/pub')));
 app.get('/manifest.webmanifest', (_req, res) => {
   res.sendFile(path.join(__dirname, '../web/pub/manifest.webmanifest'));
 });
 app.get('/sw.js', (_req, res) => {
   res.sendFile(path.join(__dirname, '../web/pub/sw.js'));
 });
-
-// ── Root redirect ─────────────────────────────────────────────────────────────
-app.get('/', (_req, res) => res.redirect('/pub'));
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/healthz', (_req, res) => res.json({ status: 'ok' }));
@@ -310,6 +308,52 @@ app.post('/api/push/unsubscribe', (req, res) => {
   const endpoint = req.body?.endpoint;
   db.deletePushSubscription(endpoint);
   res.json({ ok: true });
+});
+
+app.post('/api/admin/push/broadcast', adminAuth, requireAdminPageRequest, async (req, res) => {
+  if (!push.isEnabled()) {
+    return res.status(503).json({ error: 'push is not configured on server' });
+  }
+
+  const text = String(req.body?.text || '').trim();
+  if (!text) {
+    return res.status(400).json({ error: 'text is required' });
+  }
+  if (text.length > 300) {
+    return res.status(400).json({ error: 'text too long (max 300 characters)' });
+  }
+
+  const subscriptions = db.getAllPushSubscriptions();
+  let sent = 0;
+  let removed = 0;
+  let failed = 0;
+
+  for (const sub of subscriptions) {
+    const result = await push.sendPush(sub, {
+      title: 'Admin bericht',
+      body: text,
+      url: '/',
+    });
+
+    if (result.ok) {
+      sent += 1;
+      continue;
+    }
+
+    failed += 1;
+    if (result.shouldDelete) {
+      db.deletePushSubscription(sub.endpoint);
+      removed += 1;
+    }
+  }
+
+  broadcast({
+    type: 'admin_broadcast',
+    text,
+    sentAt: new Date().toISOString(),
+  });
+
+  res.json({ ok: true, sent, failed, removed, total: subscriptions.length });
 });
 
 app.get('/api/admin/teams', adminAuth, requireAdminPageRequest, (_req, res) => {

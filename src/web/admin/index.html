@@ -101,6 +101,7 @@
       display: none;
     }
     #panel-teams .row-actions button,
+    #panel-push .row-actions button,
     #teams-editor button[data-kind="team-del"],
     #teams-editor button[data-kind="device-del"] {
       padding: 4px 12px;
@@ -732,6 +733,7 @@
     <button class="menu-btn" id="menu-teams">Teams</button>
     <button class="menu-btn" id="menu-game">Spelbeheer</button>
     <button class="menu-btn" id="menu-modes">Spelmodi</button>
+    <button class="menu-btn" id="menu-push">Push bericht</button>
     <button class="menu-btn" id="menu-history">History</button>
   </aside>
   <div id="menu-overlay" aria-hidden="true"></div>
@@ -869,6 +871,21 @@
       </div>
     </section>
 
+    <section class="panel panel-pad" id="panel-push">
+      <h2>Push bericht</h2>
+      <p class="hint">Stuur een kort tekstbericht naar alle verbonden publieke clients en actieve push-abonnees.</p>
+      <div class="game-card" style="max-width:720px">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <label for="input-admin-push-text" style="font-size:0.82rem;color:#aee">Bericht (max 300 tekens)</label>
+          <textarea id="input-admin-push-text" class="input" rows="5" maxlength="300" placeholder="Typ hier je bericht..."></textarea>
+          <div class="row-actions" style="margin-top:2px">
+            <button class="btn-warn" id="btn-admin-push-send">Verstuur push</button>
+          </div>
+          <div id="admin-push-feedback" class="hint">Nog niets verstuurd.</div>
+        </div>
+      </div>
+    </section>
+
     <section class="panel panel-pad" id="panel-history">
       <h2>History</h2>
       <p class="hint">Overzicht van gestopte rondes met scores en polygon-snapshot van dat moment.</p>
@@ -981,6 +998,7 @@ const geofenceClaimClocks = {}; // name → { marker, owner, ownerSince }
 const markerLayers = {}; // deviceId → L.Marker
 let   selectedName = null;
 let   gameStatus = 'unknown';
+let   claimClockFreezeAtMs = null;
 let   hasAppliedServerMapDefault = false;
 let   mapDefaultView = { ...DEFAULT_MAP_VIEW };
 let   captureHoldMs = 30000;
@@ -1206,10 +1224,10 @@ function removeGfLayer(name) {
   if (selectedName === name) selectGeofence(null);
 }
 
-function formatClaimDuration(ownerSinceIso) {
+function formatClaimDuration(ownerSinceIso, nowMs = Date.now()) {
   const sinceMs = Date.parse(ownerSinceIso || '');
   if (!Number.isFinite(sinceMs)) return '00:00';
-  const elapsed = Math.max(0, Date.now() - sinceMs);
+  const elapsed = Math.max(0, nowMs - sinceMs);
   const totalSec = Math.floor(elapsed / 1000);
   const hours = Math.floor(totalSec / 3600);
   const mins = Math.floor((totalSec % 3600) / 60);
@@ -1220,10 +1238,17 @@ function formatClaimDuration(ownerSinceIso) {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-function clockHtml(owner, ownerSinceIso) {
+function clockHtml(owner, ownerSinceIso, nowMs = Date.now()) {
   const bg = teamColor(owner);
   const textColor = contrastTextColor(bg);
-  return `<div class="claim-clock" style="background:${bg};color:${textColor}">${formatClaimDuration(ownerSinceIso)}</div>`;
+  return `<div class="claim-clock" style="background:${bg};color:${textColor}">${formatClaimDuration(ownerSinceIso, nowMs)}</div>`;
+}
+
+function getClaimClockNowMs() {
+  if (gameStatus === 'stopped' && Number.isFinite(claimClockFreezeAtMs)) {
+    return claimClockFreezeAtMs;
+  }
+  return Date.now();
 }
 
 function contrastTextColor(hexColor) {
@@ -1264,12 +1289,13 @@ function upsertClaimClock(name, polygon, owner, ownerSinceIso) {
 }
 
 function refreshClaimClocks() {
+  const nowMs = getClaimClockNowMs();
   Object.entries(geofenceClaimClocks).forEach(([name, clock]) => {
     const poly = gfLayers[name];
     if (!poly) return;
     clock.marker.setLatLng(poly.getBounds().getCenter());
     const icon = clock.marker.getIcon();
-    icon.options.html = clockHtml(clock.owner, clock.ownerSince);
+    icon.options.html = clockHtml(clock.owner, clock.ownerSince, nowMs);
     clock.marker.setIcon(icon);
   });
 }
@@ -1424,7 +1450,15 @@ async function importPolygonsFile(file) {
 }
 
 function setGameStatusUI(status) {
+  const previousStatus = gameStatus;
   gameStatus = status;
+  if (status === 'stopped') {
+    if (previousStatus !== 'stopped' || !Number.isFinite(claimClockFreezeAtMs)) {
+      claimClockFreezeAtMs = Date.now();
+    }
+  } else {
+    claimClockFreezeAtMs = null;
+  }
   const el = document.getElementById('game-status');
   el.textContent = status;
   const colors = {
@@ -1516,6 +1550,7 @@ function showPanel(panelId) {
     teams: 'panel-teams',
     game: 'panel-game',
     modes: 'panel-modes',
+    push: 'panel-push',
     history: 'panel-history',
   };
   Object.values(panelMap).forEach(id => {
@@ -1527,6 +1562,7 @@ function showPanel(panelId) {
   document.getElementById('menu-teams').classList.toggle('active', panelId === 'teams');
   document.getElementById('menu-game').classList.toggle('active', panelId === 'game');
   document.getElementById('menu-modes').classList.toggle('active', panelId === 'modes');
+  document.getElementById('menu-push').classList.toggle('active', panelId === 'push');
   document.getElementById('menu-history').classList.toggle('active', panelId === 'history');
   document.getElementById('toolbar-polygons').classList.toggle('hidden', panelId !== 'polygons');
   setMapEditMode(panelId === 'polygons');
@@ -1630,6 +1666,20 @@ async function refreshScoresPanel() {
   } catch (err) {
     alert('Error loading scores: ' + err.message);
   }
+}
+
+async function sendAdminPushMessage() {
+  const input = document.getElementById('input-admin-push-text');
+  const feedback = document.getElementById('admin-push-feedback');
+  const text = String(input.value || '').trim();
+  if (!text) {
+    alert('Vul eerst een bericht in');
+    return;
+  }
+
+  const result = await apiPost('/api/admin/push/broadcast', { text });
+  input.value = '';
+  feedback.textContent = `Verstuurd om ${new Date().toLocaleTimeString('nl-NL')}: ${result.sent}/${result.total} push afgeleverd, ${result.failed} mislukt, ${result.removed} opgeschoond.`;
 }
 
 function formatDateTime(iso) {
@@ -2099,7 +2149,15 @@ document.getElementById('menu-scores').addEventListener('click', () => showPanel
 document.getElementById('menu-teams').addEventListener('click', () => showPanel('teams'));
 document.getElementById('menu-game').addEventListener('click', () => showPanel('game'));
 document.getElementById('menu-modes').addEventListener('click', () => showPanel('modes'));
+document.getElementById('menu-push').addEventListener('click', () => showPanel('push'));
 document.getElementById('menu-history').addEventListener('click', () => showPanel('history'));
+document.getElementById('btn-admin-push-send').addEventListener('click', async () => {
+  try {
+    await sendAdminPushMessage();
+  } catch (err) {
+    alert('Error versturen pushbericht: ' + err.message);
+  }
+});
 document.getElementById('btn-team-add').addEventListener('click', () => {
   teamRows.push({ originalName: '', name: '', color: '#808080' });
   renderTeamsEditor();

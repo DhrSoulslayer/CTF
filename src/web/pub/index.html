@@ -432,21 +432,14 @@
   <h1>🚩 CTF Live</h1>
   <div id="pills"></div>
   <span id="team-credit-pill" class="hidden">Credits: <strong id="team-credit-value">0</strong></span>
-  <span id="owners-toggle">▶ Show territory owners</span><button id="btn-home" type="button">⌂ Home</button><button id="btn-admin" type="button">🛠 Admin</button><button id="btn-push" type="button">🔔 Push uit</button>
   <div id="team-alert"></div>
-  <div id="owners-wrap">
-    <table id="owners-table">
-      <thead><tr><th>Territory</th><th>Owner</th></tr></thead>
-      <tbody id="owners-body"></tbody>
-    </table>
-  </div>
 </div>
 
 <div id="map"></div>
 
 <div id="startup-overlay">
   <div id="startup-card">
-    <h2>Team kiezen en meldingen instellen</h2>
+    <h2>Team kiezen</h2>
     <div class="startup-row">
       <label class="startup-label" for="startup-team">Voor welk team speel je?</label>
       <select id="startup-team" class="startup-select">
@@ -454,12 +447,10 @@
       </select>
     </div>
     <div class="startup-actions">
-      <button id="startup-enable-push" class="startup-btn primary">Push aanzetten</button>
-      <button id="startup-skip-push" class="startup-btn secondary">Verder zonder push</button>
-      <button id="startup-load" class="startup-btn ghost">Laad kaart</button>
+      <button id="startup-load" class="startup-btn primary">Start</button>
     </div>
     <div id="startup-lock-badge">Team lock uit</div>
-    <div id="startup-hint">Kies eerst je team. Met push ontvang je meldingen wanneer jouw team een gebied verliest.</div>
+    <div id="startup-hint">Kies eerst je team. Push wordt automatisch geactiveerd.</div>
     <div id="startup-push-advice">Push-tips laden...</div>
   </div>
 </div>
@@ -498,8 +489,10 @@ let   scores = {};
 let   teamCredits = {};
 let   owners = {};
 let   gameStatus = 'unknown';
+let   claimClockFreezeAtMs = null;
 let   gameMode = '';
 const FIRST_OPEN_FIT_KEY = 'ctf-fit-polygons-once-v1';
+const LIVE_MAP_VIEW_KEY = 'ctf-live-map-view-v1';
 let   hasAutoFitted = false;
 let   mapDefaultView = { ...DEFAULT_MAP_VIEW };
 let   selectedTeam = localStorage.getItem('ctf-selected-team') || '';
@@ -555,7 +548,15 @@ function showTeamAlert(message) {
 }
 
 function applyGameStatus(status) {
+  const previousStatus = gameStatus;
   gameStatus = status;
+  if (status === 'stopped') {
+    if (previousStatus !== 'stopped' || !Number.isFinite(claimClockFreezeAtMs)) {
+      claimClockFreezeAtMs = Date.now();
+    }
+  } else {
+    claimClockFreezeAtMs = null;
+  }
   const header = document.querySelector('#header h1');
   const labels = {
     running: 'running',
@@ -566,8 +567,16 @@ function applyGameStatus(status) {
   header.textContent = `🚩 CTF Live (${labels[gameStatus] || 'unknown'})`;
 }
 
+function getClaimClockNowMs() {
+  if (gameStatus === 'stopped' && Number.isFinite(claimClockFreezeAtMs)) {
+    return claimClockFreezeAtMs;
+  }
+  return Date.now();
+}
+
 function updateOwnersTable() {
   const tbody = document.getElementById('owners-body');
+  if (!tbody) return;
   tbody.innerHTML = '';
   Object.entries(owners).sort((a,b) => a[0].localeCompare(b[0])).forEach(([name, owner]) => {
     const tr  = document.createElement('tr');
@@ -608,10 +617,10 @@ function removeGeofence(name) {
   removeClaimClock(name);
 }
 
-function formatClaimDuration(ownerSinceIso) {
+function formatClaimDuration(ownerSinceIso, nowMs = Date.now()) {
   const sinceMs = Date.parse(ownerSinceIso || '');
   if (!Number.isFinite(sinceMs)) return '00:00';
-  const elapsed = Math.max(0, Date.now() - sinceMs);
+  const elapsed = Math.max(0, nowMs - sinceMs);
   const totalSec = Math.floor(elapsed / 1000);
   const hours = Math.floor(totalSec / 3600);
   const mins = Math.floor((totalSec % 3600) / 60);
@@ -622,10 +631,10 @@ function formatClaimDuration(ownerSinceIso) {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-function clockHtml(owner, ownerSinceIso) {
+function clockHtml(owner, ownerSinceIso, nowMs = Date.now()) {
   const bg = teamColor(owner);
   const textColor = contrastTextColor(bg);
-  return `<div class="claim-clock" style="background:${bg};color:${textColor}">${formatClaimDuration(ownerSinceIso)}</div>`;
+  return `<div class="claim-clock" style="background:${bg};color:${textColor}">${formatClaimDuration(ownerSinceIso, nowMs)}</div>`;
 }
 
 function contrastTextColor(hexColor) {
@@ -667,17 +676,19 @@ function upsertClaimClock(name, polygon, owner, ownerSinceIso) {
 }
 
 function refreshClaimClocks() {
+  const nowMs = getClaimClockNowMs();
   Object.entries(geofenceClaimClocks).forEach(([name, clock]) => {
     const poly = geofenceLayers[name];
     if (!poly) return;
     clock.marker.setLatLng(poly.getBounds().getCenter());
     const icon = clock.marker.getIcon();
-    icon.options.html = clockHtml(clock.owner, clock.ownerSince);
+    icon.options.html = clockHtml(clock.owner, clock.ownerSince, nowMs);
     clock.marker.setIcon(icon);
   });
 }
 
 function maybeFitMapToPolygonsOnce() {
+  if (gameStatus === 'running') return;
   if (hasAutoFitted) return;
   if (localStorage.getItem(FIRST_OPEN_FIT_KEY) === '1') {
     hasAutoFitted = true;
@@ -695,14 +706,44 @@ function maybeFitMapToPolygonsOnce() {
   hasAutoFitted = true;
 }
 
-function applyMapDefaultView(view) {
+function applyMapDefaultView(view, options = {}) {
+  const applyToMap = options.applyToMap !== false;
   if (!view) return;
   const lat = Number(view.lat);
   const lon = Number(view.lon);
   const zoom = Number(view.zoom);
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(zoom)) return;
   mapDefaultView = { lat, lon, zoom };
-  map.setView([lat, lon], zoom);
+  if (applyToMap) {
+    map.setView([lat, lon], zoom);
+  }
+}
+
+function persistCurrentMapViewport() {
+  const center = map.getCenter();
+  const zoom = map.getZoom();
+  const payload = {
+    lat: Number(center.lat.toFixed(6)),
+    lon: Number(center.lng.toFixed(6)),
+    zoom: Number(zoom.toFixed(2)),
+  };
+  localStorage.setItem(LIVE_MAP_VIEW_KEY, JSON.stringify(payload));
+}
+
+function restorePersistedMapViewport() {
+  try {
+    const raw = localStorage.getItem(LIVE_MAP_VIEW_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    const lat = Number(parsed?.lat);
+    const lon = Number(parsed?.lon);
+    const zoom = Number(parsed?.zoom);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(zoom)) return false;
+    map.setView([lat, lon], zoom);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function fitMapToAllPolygons() {
@@ -768,10 +809,15 @@ function applySnapshot(data) {
   gameMode = data.game?.mode || '';
   teams = Array.isArray(data.teams) && data.teams.length ? data.teams : teams;
   teamColors = { ...DEFAULT_TEAM_COLORS, ...(data.teamColors || {}) };
-  applyMapDefaultView(data.mapDefault || mapDefaultView);
-  applyGameStatus(data.game?.status || 'unknown');
+  const nextGameStatus = data.game?.status || 'unknown';
+  const keepLiveViewport = nextGameStatus === 'running';
+  applyMapDefaultView(data.mapDefault || mapDefaultView, { applyToMap: !keepLiveViewport });
+  applyGameStatus(nextGameStatus);
 
   (data.geofences || []).forEach(gf => upsertGeofence(gf));
+  if (keepLiveViewport) {
+    restorePersistedMapViewport();
+  }
   maybeFitMapToPolygonsOnce();
   Object.values(data.positions || {}).forEach(pos => upsertMarker(pos));
 
@@ -779,6 +825,10 @@ function applySnapshot(data) {
   updateSelectedTeamCredits();
   updateOwnersTable();
 }
+
+map.on('moveend', () => {
+  persistCurrentMapViewport();
+});
 
 function populateStartupTeams(teamList) {
   const select = document.getElementById('startup-team');
@@ -808,7 +858,7 @@ function applyStartupTeamLock() {
   } else {
     badge.textContent = 'Team lock uit';
     badge.classList.remove('active');
-    hint.textContent = 'Kies eerst je team. Met push ontvang je meldingen wanneer jouw team een gebied verliest.';
+    hint.textContent = 'Kies eerst je team. Push wordt automatisch geactiveerd.';
   }
 }
 
@@ -847,10 +897,16 @@ function requireSelectedTeam() {
   return team;
 }
 
-function completeStartupAndConnect() {
+async function completeStartupAndConnect() {
   if (startupCompleted) return;
   const team = requireSelectedTeam();
   if (!team) return;
+  try {
+    await enablePushForTeam(team);
+  } catch (err) {
+    alert('Push activeren mislukt: ' + err.message + '\n\nTip: ' + getPushPlatformAdvice());
+    return;
+  }
   startupCompleted = true;
   document.getElementById('startup-overlay').classList.add('hidden');
   connect();
@@ -939,10 +995,16 @@ function connect() {
         break;
 
       case 'settings_update':
-        applyMapDefaultView(msg.mapDefault || mapDefaultView);
+        applyMapDefaultView(msg.mapDefault || mapDefaultView, { applyToMap: gameStatus !== 'running' });
         if (msg.gameMode !== undefined) {
           gameMode = msg.gameMode || '';
           updateSelectedTeamCredits();
+        }
+        break;
+
+      case 'admin_broadcast':
+        if (msg.text) {
+          showTeamAlert(`Admin: ${msg.text}`);
         }
         break;
     }
@@ -991,36 +1053,18 @@ function serializePushSubscription(subscription) {
   };
 }
 
-async function syncPushButtonState() {
-  const btn = document.getElementById('btn-push');
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    btn.disabled = true;
-    btn.textContent = window.isSecureContext ? '🔔 Push niet beschikbaar' : '🔔 Push vereist HTTPS';
-    return;
-  }
-
-  const keyInfo = await (await fetch('/api/push/public-key')).json();
-  if (!keyInfo.enabled || !keyInfo.publicKey) {
-    btn.disabled = true;
-    btn.textContent = '🔔 Push server uit';
-    return;
-  }
-
-  const reg = await navigator.serviceWorker.ready;
-  const existing = await reg.pushManager.getSubscription();
-  btn.disabled = false;
-  btn.dataset.publicKey = keyInfo.publicKey;
-  btn.textContent = existing ? '🔔 Push aan' : '🔔 Push uit';
-}
-
 async function enablePushForTeam(team) {
-  const btn = document.getElementById('btn-push');
-  if (btn.disabled) {
-    throw new Error('push is niet beschikbaar');
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    throw new Error(window.isSecureContext ? 'push is niet beschikbaar' : 'push vereist HTTPS (secure context)');
   }
 
   if (!window.isSecureContext) {
     throw new Error('push vereist HTTPS (secure context)');
+  }
+
+  const keyInfo = await (await fetch('/api/push/public-key')).json();
+  if (!keyInfo.enabled || !keyInfo.publicKey) {
+    throw new Error('push is niet geconfigureerd op de server');
   }
 
   const permission = await Notification.requestPermission();
@@ -1029,7 +1073,7 @@ async function enablePushForTeam(team) {
   }
 
   const reg = await navigator.serviceWorker.ready;
-  const publicKey = btn.dataset.publicKey;
+  const publicKey = keyInfo.publicKey;
   let subscription = await reg.pushManager.getSubscription();
   if (!subscription) {
     subscription = await reg.pushManager.subscribe({
@@ -1058,42 +1102,7 @@ async function enablePushForTeam(team) {
     }
     throw new Error(`subscribe failed (${r.status})${details}`);
   }
-  btn.textContent = '🔔 Push aan';
 }
-
-document.getElementById('btn-push').addEventListener('click', async () => {
-  const btn = document.getElementById('btn-push');
-  if (btn.disabled) return;
-  try {
-    const reg = await navigator.serviceWorker.ready;
-    const existing = await reg.pushManager.getSubscription();
-    if (existing) {
-      await fetch('/api/push/unsubscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint: existing.endpoint }),
-      });
-      await existing.unsubscribe();
-      btn.textContent = '🔔 Push uit';
-      return;
-    }
-
-    const team = selectedTeam || localStorage.getItem('ctf-selected-team') || '';
-    if (!team) {
-      alert('Kies eerst een team');
-      return;
-    }
-    await enablePushForTeam(team);
-  } catch (err) {
-    alert('Push configureren mislukt: ' + err.message + '\n\nTip: ' + getPushPlatformAdvice());
-  }
-});
-
-syncPushButtonState().catch(() => {
-  const btn = document.getElementById('btn-push');
-  btn.disabled = true;
-  btn.textContent = '🔔 Push fout';
-});
 
 async function initStartupFlow() {
   const state = await (await fetch('/api/state')).json();
@@ -1116,23 +1125,8 @@ document.getElementById('startup-team').addEventListener('change', e => {
   updateSelectedTeamCredits();
 });
 
-document.getElementById('startup-load').addEventListener('click', () => {
-  completeStartupAndConnect();
-});
-
-document.getElementById('startup-skip-push').addEventListener('click', () => {
-  completeStartupAndConnect();
-});
-
-document.getElementById('startup-enable-push').addEventListener('click', async () => {
-  const team = requireSelectedTeam();
-  if (!team) return;
-  try {
-    await enablePushForTeam(team);
-    completeStartupAndConnect();
-  } catch (err) {
-    alert('Push activeren mislukt: ' + err.message + '\n\nTip: ' + getPushPlatformAdvice());
-  }
+document.getElementById('startup-load').addEventListener('click', async () => {
+  await completeStartupAndConnect();
 });
 
 initStartupFlow().catch(err => {
@@ -1140,17 +1134,6 @@ initStartupFlow().catch(err => {
 });
 renderPushPlatformAdvice();
 
-// ── Owners toggle ──────────────────────────────────────────────────────────────
-document.getElementById('owners-toggle').addEventListener('click', function() {
-  const wrap = document.getElementById('owners-wrap');
-  const open = wrap.classList.toggle('open');
-  this.textContent = (open ? '▼ Hide' : '▶ Show') + ' territory owners';
-});
-
-document.getElementById('btn-home').addEventListener('click', fitMapToAllPolygons);
-document.getElementById('btn-admin').addEventListener('click', function() {
-  window.location.href = '/admin/';
-});
 </script>
 </body>
 </html>

@@ -73,7 +73,11 @@ Basic Auth-beveiligde beheerpagina met vijf panelen.
 4. Voor push en install als PWA is HTTPS nodig (of localhost tijdens development).
 5. Jij regelt SSL en reverse proxy; dat is voldoende om Web Push browser-vereisten te halen.
 6. De server gebruikt VAPID-configuratie voor push. Als deze variabelen niet gezet zijn, genereert de server automatisch een keypair en slaat die persistent op in de database.
-7. Push-subscriptions worden team-specifiek opgeslagen; meldingen over gebiedsverlies gaan alleen naar het geselecteerde team.
+7. Push-subscriptions worden team-specifiek opgeslagen voor opt-in en beheer vanuit de client.
+8. Bij elke succesvolle claim wordt een pushbericht verstuurd naar alle actieve push-subscriptions met:
+  - Titel: `Gebied geclaimd!`
+  - Tekst: `Team "<teamnaam>" heeft het gebied overgenomen!`
+9. Bij onvoldoende credits voor een claimpoging ontvangt alleen het betrokken team een pushmelding.
 
 VAPID environment variabelen:
 
@@ -93,8 +97,8 @@ Zonder deze variabelen blijft push beschikbaar door automatische keygeneratie; e
 6. Score telt alleen op bij echte wisseling van eigenaar.
 5. Bij eigenaarswissel wordt bezettingstijd van de vorige eigenaar opgeslagen.
 6. Neutral-bezettingstijd wordt niet bijgehouden.
-7. Bij eigenaarswissel ontvangt een push-geabonneerde browser een melding dat een team een gebied kwijt is geraakt.
-8. Bij onvoldoende credits voor een claimpoging ontvangt het betrokken team een pushmelding.
+7. Bij eigenaarswissel (succesvolle claim) ontvangen push-geabonneerde browsers een melding: `Gebied geclaimd!`.
+8. Bij onvoldoende credits voor een claimpoging ontvangt alleen het betrokken team een pushmelding.
 
 Game status-overgangen:
 
@@ -157,10 +161,21 @@ Voorbeeld:
 ### 3. Applicatie starten
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 Standaard draait de app op poort 3456.
+
+Deze repository gebruikt standaard een gepubliceerde image (`dhrsoulslayer/ctf:latest`) in `docker-compose.yml`.
+
+Update-flow voor nieuwe versies:
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose ps
+```
 
 ### 4. Traccar configureren
 
