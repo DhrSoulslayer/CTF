@@ -252,6 +252,16 @@
     #map .leaflet-touch .leaflet-draw-toolbar a {
       font: 12px/32px Arial, sans-serif;
     }
+    #map .leaflet-draw-section {
+      position: relative;
+    }
+    #map .leaflet-draw-actions {
+      left: calc(100% + 8px);
+      top: 0;
+    }
+    #map .leaflet-touch .leaflet-draw-actions {
+      left: calc(100% + 8px);
+    }
 
     /* modal */
     #modal-overlay {
@@ -876,6 +886,10 @@
       <p class="hint">Stuur een kort tekstbericht naar alle verbonden publieke clients en actieve push-abonnees.</p>
       <div class="game-card" style="max-width:720px">
         <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="background:#1a2c4a;border:1px solid #34527a;border-radius:6px;padding:10px">
+            <div style="font-size:0.8rem;color:#aee">Actieve push-verbindingen: <strong id="push-subscriber-count">--</strong></div>
+            <div id="push-subscriber-details" style="font-size:0.75rem;color:#888;margin-top:4px"></div>
+          </div>
           <label for="input-admin-push-text" style="font-size:0.82rem;color:#aee">Bericht (max 300 tekens)</label>
           <textarea id="input-admin-push-text" class="input" rows="5" maxlength="300" placeholder="Typ hier je bericht..."></textarea>
           <div class="row-actions" style="margin-top:2px">
@@ -1245,7 +1259,7 @@ function clockHtml(owner, ownerSinceIso, nowMs = Date.now()) {
 }
 
 function getClaimClockNowMs() {
-  if (gameStatus === 'stopped' && Number.isFinite(claimClockFreezeAtMs)) {
+  if ((gameStatus === 'paused' || gameStatus === 'stopped') && Number.isFinite(claimClockFreezeAtMs)) {
     return claimClockFreezeAtMs;
   }
   return Date.now();
@@ -1452,8 +1466,8 @@ async function importPolygonsFile(file) {
 function setGameStatusUI(status) {
   const previousStatus = gameStatus;
   gameStatus = status;
-  if (status === 'stopped') {
-    if (previousStatus !== 'stopped' || !Number.isFinite(claimClockFreezeAtMs)) {
+  if (status === 'paused' || status === 'stopped') {
+    if (previousStatus !== status || !Number.isFinite(claimClockFreezeAtMs)) {
       claimClockFreezeAtMs = Date.now();
     }
   } else {
@@ -1570,6 +1584,7 @@ function showPanel(panelId) {
     setTimeout(() => map.invalidateSize(), 0);
   }
   if (panelId === 'scores') refreshScoresPanel();
+  if (panelId === 'push') updatePushSubscriberCount();
   if (panelId === 'teams') loadTeamsEditor();
   if (panelId !== 'teams') teamsEditorFocus = null;
   if (panelId === 'history') {
@@ -1665,6 +1680,34 @@ async function refreshScoresPanel() {
     );
   } catch (err) {
     alert('Error loading scores: ' + err.message);
+  }
+}
+
+async function updatePushSubscriberCount() {
+  try {
+    const response = await fetch('/api/admin/push/stats', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) return;
+    const stats = await response.json();
+    const countEl = document.getElementById('push-subscriber-count');
+    const detailsEl = document.getElementById('push-subscriber-details');
+    if (!countEl) return;
+    
+    countEl.textContent = String(stats.total || 0);
+    
+    const teamEntries = Object.entries(stats.byTeam || {})
+      .filter(([_, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1]);
+    
+    if (teamEntries.length > 0) {
+      detailsEl.textContent = teamEntries.map(([team, count]) => `${team}: ${count}`).join(', ');
+    } else {
+      detailsEl.textContent = 'geen teams ingeschreven';
+    }
+  } catch (err) {
+    console.warn('Failed to load push stats:', err.message);
   }
 }
 
@@ -2390,6 +2433,9 @@ function connect() {
 showPanel('overview');
 connect();
 setInterval(refreshClaimClocks, 1000);
+setInterval(() => {
+  if (activePanel === 'push') updatePushSubscriberCount();
+}, 5000);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

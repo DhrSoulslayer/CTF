@@ -550,8 +550,8 @@ function showTeamAlert(message) {
 function applyGameStatus(status) {
   const previousStatus = gameStatus;
   gameStatus = status;
-  if (status === 'stopped') {
-    if (previousStatus !== 'stopped' || !Number.isFinite(claimClockFreezeAtMs)) {
+  if (status === 'paused' || status === 'stopped') {
+    if (previousStatus !== status || !Number.isFinite(claimClockFreezeAtMs)) {
       claimClockFreezeAtMs = Date.now();
     }
   } else {
@@ -568,7 +568,7 @@ function applyGameStatus(status) {
 }
 
 function getClaimClockNowMs() {
-  if (gameStatus === 'stopped' && Number.isFinite(claimClockFreezeAtMs)) {
+  if ((gameStatus === 'paused' || gameStatus === 'stopped') && Number.isFinite(claimClockFreezeAtMs)) {
     return claimClockFreezeAtMs;
   }
   return Date.now();
@@ -864,13 +864,17 @@ function applyStartupTeamLock() {
 
 function getPushPlatformAdvice() {
   const ua = navigator.userAgent || '';
-  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua) && !window.MSStream;
   const isAndroid = /Android/i.test(ua);
   const isMac = /Macintosh|Mac OS X/i.test(ua);
   const isSafari = /Safari/i.test(ua) && !/Chrome|CriOS|Edg\//i.test(ua);
 
   if (isIOS) {
-    return 'iOS: installeer deze site eerst als app (Deel > Zet op beginscherm), open daarna de app en zet dan Push aan.';
+    const isStandalone = window.navigator.standalone === true;
+    if (isStandalone) {
+      return 'iOS PWA: push werkt via lokale meldingen. Je ontvangt berichten van beheerders en territoriumwisselingen als notificaties.';
+    }
+    return 'iOS: installeer deze site eerst als app (Deel > Zet op beginscherm), open daarna de app en zet dan Push aan. Push werkt via lokale meldingen in de geïnstalleerde app.';
   }
   if (isAndroid) {
     return 'Android: push werkt het meest stabiel na installeren als app (Toevoegen aan startscherm). Open daarna de app en zet Push aan.';
@@ -975,6 +979,16 @@ function connect() {
         updateScoreboard();
         updateSelectedTeamCredits();
         updateOwnersTable();
+        // iOS PWA fallback push notification
+        if (isIOSPWA() && iosPushEnabled) {
+          const claimedArea = String(msg.geofenceName || '').trim();
+          showIOSNotification(
+            'Gebied geclaimd!',
+            claimedArea
+              ? `Team "${msg.team}" heeft gebied "${claimedArea}" overgenomen!`
+              : `Team "${msg.team}" heeft een gebied overgenomen!`
+          );
+        }
         break;
 
       case 'capture_blocked':
@@ -984,14 +998,35 @@ function connect() {
         updateScoreboard();
         updateSelectedTeamCredits();
         if ((selectedTeam || localStorage.getItem('ctf-selected-team') || '') === msg.team) {
-          const remaining = Math.max(0, Math.round(Number(msg.teamCredits?.[msg.team]) || 0));
-          const cost = Math.max(0, Math.round(Number(msg.creditCost) || 0));
-          showTeamAlert(`Onvoldoende credits om ${msg.geofenceName} te claimen. Kost: ${cost}, saldo: ${remaining}`);
+          let alertMsg = '';
+          if (msg.reason === 'owner_lock') {
+            alertMsg = `${msg.geofenceName} is vergrendeld: team ${msg.ownerTeam || 'onbekend'} heeft daar nog een tracker in het gebied.`;
+          } else {
+            const remaining = Math.max(0, Math.round(Number(msg.teamCredits?.[msg.team]) || 0));
+            const cost = Math.max(0, Math.round(Number(msg.creditCost) || 0));
+            alertMsg = `Onvoldoende credits om ${msg.geofenceName} te claimen. Kost: ${cost}, saldo: ${remaining}`;
+          }
+          showTeamAlert(alertMsg);
+          // iOS PWA fallback push notification
+          if (isIOSPWA() && iosPushEnabled) {
+            showIOSNotification('Onvoldoende credits', alertMsg);
+          }
         }
         break;
 
       case 'game_status':
+        const prevGameStatus = gameStatus;
         applyGameStatus(msg.status || 'unknown');
+        // iOS PWA fallback push notification for game status change
+        if (isIOSPWA() && iosPushEnabled && gameStatus !== prevGameStatus) {
+          if (gameStatus === 'running') {
+            showIOSNotification('Spel gestart!', 'Het spel is nu actief. Begin met claimen!');
+          } else if (gameStatus === 'paused') {
+            showIOSNotification('Spel onderbroken', 'Het spel is onderbroken. Geen claimen mogelijk nu.');
+          } else if (gameStatus === 'stopped') {
+            showIOSNotification('Spel gestopt', 'Het spel is gestopt. Ronde is afgerond.');
+          }
+        }
         break;
 
       case 'settings_update':
@@ -1005,6 +1040,10 @@ function connect() {
       case 'admin_broadcast':
         if (msg.text) {
           showTeamAlert(`Admin: ${msg.text}`);
+          // iOS PWA fallback push notification
+          if (isIOSPWA() && iosPushEnabled) {
+            showIOSNotification('Admin bericht', msg.text);
+          }
         }
         break;
     }
@@ -1042,6 +1081,14 @@ function arrayBufferToBase64Url(buffer) {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
+
+function isIOSPWA() {
+  return isIOS() && ('standalone' in window.navigator) && window.navigator.standalone === true;
+}
+
 function serializePushSubscription(subscription) {
   const fromJson = typeof subscription?.toJSON === 'function' ? subscription.toJSON() : {};
   const endpoint = String(fromJson?.endpoint || subscription?.endpoint || '').trim();
@@ -1053,13 +1100,81 @@ function serializePushSubscription(subscription) {
   };
 }
 
+let iosPushNotifications = [];
+let iosPushEnabled = false;
+
+function enableIOSPushFallback(team) {
+  iosPushEnabled = true;
+  iosPushNotifications = [];
+  console.log('iOS push fallback enabled for team:', team);
+}
+
+function disableIOSPushFallback() {
+  iosPushEnabled = false;
+}
+
+function showIOSNotification(title, body) {
+  if (!iosPushEnabled) return;
+  
+  const notification = {
+    title,
+    body,
+    timestamp: new Date().toLocaleTimeString('nl-NL'),
+  };
+  iosPushNotifications.unshift(notification);
+  
+  // Keep only recent notifications
+  if (iosPushNotifications.length > 10) {
+    iosPushNotifications.pop();
+  }
+  
+  // Try Safari push (if available), otherwise alert
+  try {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(title, { body, icon: '/pub/icon.svg' });
+    } else {
+      alert(`${title}\\n${body}`);
+    }
+  } catch (err) {
+    console.warn('iOS notification failed:', err);
+  }
+}
+
 async function enablePushForTeam(team) {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    throw new Error(window.isSecureContext ? 'push is niet beschikbaar' : 'push vereist HTTPS (secure context)');
+  const isIosPwa = isIOSPWA();
+  
+  if (!('serviceWorker' in navigator)) {
+    throw new Error('Service Worker niet beschikbaar');
   }
 
   if (!window.isSecureContext) {
     throw new Error('push vereist HTTPS (secure context)');
+  }
+
+  // iOS PWA fallback: skip PushManager, use local notifications instead
+  if (isIosPwa && !('PushManager' in window)) {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      throw new Error('notificatiemachtiging niet gegeven');
+    }
+    enableIOSPushFallback(team);
+    // Simulate subscription registration for iOS
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscription: {
+          endpoint: `ios-pwa-${team}-${Date.now()}`,
+          keys: { p256dh: 'ios', auth: 'ios' },
+        },
+        team,
+      }),
+    }).catch(() => {});
+    return;
+  }
+
+  if (!('PushManager' in window)) {
+    throw new Error(window.isSecureContext ? 'push is niet beschikbaar' : 'push vereist HTTPS (secure context)');
   }
 
   const keyInfo = await (await fetch('/api/push/public-key')).json();

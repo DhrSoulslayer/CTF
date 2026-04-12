@@ -151,9 +151,19 @@ console.log(`Loaded ${Object.keys(deviceTeams).length} device→team mappings`);
 // ── In-memory capture state ───────────────────────────────────────────────────
 // Key: "<deviceId>::<geofenceName>"  →  { enteredAt: ms|null, triggered: bool }
 const geofenceState = {};
+let capturePauseStartedAtMs = null;
 
 function clearGeofenceState() {
   Object.keys(geofenceState).forEach(key => delete geofenceState[key]);
+}
+
+function shiftGeofenceStateByPauseDuration(pauseDurationMs) {
+  if (!Number.isFinite(pauseDurationMs) || pauseDurationMs <= 0) return;
+  Object.values(geofenceState).forEach(state => {
+    if (state && Number.isFinite(state.enteredAt)) {
+      state.enteredAt += pauseDurationMs;
+    }
+  });
 }
 
 function getGameStatus() {
@@ -185,10 +195,20 @@ function setGameStatus(status) {
   if (!VALID_GAME_STATES.has(status)) {
     throw new Error('invalid game status');
   }
+  const previousStatus = gameStatus;
+  if (previousStatus === 'running' && status === 'paused') {
+    capturePauseStartedAtMs = Date.now();
+  }
+  if (previousStatus === 'paused' && status === 'running' && Number.isFinite(capturePauseStartedAtMs)) {
+    const pauseDurationMs = Math.max(0, Date.now() - capturePauseStartedAtMs);
+    shiftGeofenceStateByPauseDuration(pauseDurationMs);
+    capturePauseStartedAtMs = null;
+  }
   gameStatus = status;
   db.setGameStatus(status);
   if (status === 'stopped') {
     clearGeofenceState();
+    capturePauseStartedAtMs = null;
   }
   return gameStatus;
 }
@@ -196,6 +216,22 @@ function setGameStatus(status) {
 function resetGame() {
   db.resetGameProgress();
   clearGeofenceState();
+  capturePauseStartedAtMs = null;
+}
+
+function isOwnerLockedInGeofence(geofence, ownerTeam) {
+  if (!geofence?.geojson?.coordinates || !ownerTeam || ownerTeam === NEUTRAL_TEAM.name) return false;
+  const positionsByDevice = db.getAllPositions();
+  for (const [trackedDeviceId, pos] of Object.entries(positionsByDevice || {})) {
+    if ((deviceTeams[trackedDeviceId] || NEUTRAL_TEAM.name) !== ownerTeam) continue;
+    const lat = Number(pos?.lat);
+    const lon = Number(pos?.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    if (pointInPolygon(lat, lon, geofence.geojson.coordinates)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Small epsilon prevents division by zero when two ring vertices share the same latitude.
@@ -292,6 +328,21 @@ function handlePosition(payload, broadcast) {
         const prevOwner = geofence.owner;
         const ownerSince = new Date(now).toISOString();
         if (prevOwner === team) {
+          geofenceState[key] = state;
+          continue;
+        }
+
+        if (isOwnerLockedInGeofence(geofence, prevOwner)) {
+          broadcast({
+            type: 'capture_blocked',
+            reason: 'owner_lock',
+            geofenceName: geofence.name,
+            team,
+            ownerTeam: prevOwner,
+            teamCredits: db.getAllTeamCredits(),
+            scores: db.getAllScores(),
+            owners: db.getAllOwners(),
+          });
           geofenceState[key] = state;
           continue;
         }

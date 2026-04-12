@@ -45,6 +45,7 @@ function broadcast(data) {
 async function notifyTerritoryClaimed(captureEvent) {
   if (!push.isEnabled()) return;
   const team = String(captureEvent?.team || '').trim();
+  const geofenceName = String(captureEvent?.geofenceName || '').trim();
   if (!team || team === 'Neutral') return;
 
   const subscriptions = db.getAllPushSubscriptions();
@@ -52,7 +53,9 @@ async function notifyTerritoryClaimed(captureEvent) {
 
   const payload = {
     title: 'Gebied geclaimd!',
-    body: `Team "${team}" heeft het gebied overgenomen!`,
+    body: geofenceName
+      ? `Team "${team}" heeft gebied "${geofenceName}" overgenomen!`
+      : `Team "${team}" heeft een gebied overgenomen!`,
     url: '/',
   };
 
@@ -77,6 +80,43 @@ async function notifyInsufficientCredits(blockedEvent) {
   const payload = {
     title: 'Onvoldoende credits',
     body: `${team} kan ${blockedEvent.geofenceName} niet claimen: kost ${cost}, saldo ${remaining}`,
+    url: '/',
+  };
+
+  for (const sub of subscriptions) {
+    const result = await push.sendPush(sub, payload);
+    if (!result.ok && result.shouldDelete) {
+      db.deletePushSubscription(sub.endpoint);
+    }
+  }
+}
+
+async function notifyGameStatusChange(newStatus) {
+  if (!push.isEnabled()) return;
+  const newStatusStr = String(newStatus || '').trim().toLowerCase();
+  if (!['running', 'paused', 'stopped'].includes(newStatusStr)) return;
+
+  const subscriptions = db.getAllPushSubscriptions();
+  if (!subscriptions.length) return;
+
+  let title = '';
+  let body = '';
+  if (newStatusStr === 'running') {
+    title = 'Spel gestart!';
+    body = 'Het spel is nu actief. Begin met claimen!';
+  } else if (newStatusStr === 'paused') {
+    title = 'Spel onderbroken';
+    body = 'Het spel is onderbroken. Geen claimen mogelijk nu.';
+  } else if (newStatusStr === 'stopped') {
+    title = 'Spel gestopt';
+    body = 'Het spel is gestopt. Ronde is afgerond.';
+  }
+
+  if (!title || !body) return;
+
+  const payload = {
+    title,
+    body,
     url: '/',
   };
 
@@ -310,6 +350,19 @@ app.post('/api/push/unsubscribe', (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/admin/push/stats', adminAuth, requireAdminPageRequest, (_req, res) => {
+  const allSubs = db.getAllPushSubscriptions();
+  const byTeam = {};
+  const configuredTeams = gameLogic.getTeamConfig().teams.map(t => String(t.name || '').trim()).filter(Boolean);
+  for (const team of configuredTeams) {
+    byTeam[team] = db.getPushSubscriptionsByTeam(team).length;
+  }
+  res.json({
+    total: allSubs.length,
+    byTeam,
+  });
+});
+
 app.post('/api/admin/push/broadcast', adminAuth, requireAdminPageRequest, async (req, res) => {
   if (!push.isEnabled()) {
     return res.status(503).json({ error: 'push is not configured on server' });
@@ -517,6 +570,9 @@ app.put('/api/game/status', adminAuth, requireAdminPageRequest, (req, res) => {
   const nextStatus = gameLogic.setGameStatus(status);
   const snapshot = buildSnapshot();
   broadcast(snapshot);
+  notifyGameStatusChange(nextStatus).catch(err => {
+    console.error('Push notify failed:', err.message);
+  });
   res.json({ status: nextStatus, savedRoundId });
 });
 
