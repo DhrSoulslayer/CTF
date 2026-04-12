@@ -170,6 +170,15 @@ function getGameStatus() {
   return gameStatus;
 }
 
+// Returns an ISO timestamp to use as 'now' for occupancy calculations.
+// When the game is paused or stopped, time is frozen at the pause/stop moment.
+function getOccupancyFreezeIso() {
+  if (gameStatus === 'paused' && Number.isFinite(capturePauseStartedAtMs)) {
+    return new Date(capturePauseStartedAtMs).toISOString();
+  }
+  return null; // null = use real now
+}
+
 function getCaptureHoldMs() {
   return captureHoldMs;
 }
@@ -340,7 +349,7 @@ function handlePosition(payload, broadcast) {
             team,
             ownerTeam: prevOwner,
             teamCredits: db.getAllTeamCredits(),
-            scores: db.getAllScores(),
+            scores: db.getScoresByOwnership(),
             owners: db.getAllOwners(),
           });
           geofenceState[key] = state;
@@ -360,7 +369,7 @@ function handlePosition(payload, broadcast) {
               team,
               creditCost,
               teamCredits: db.getAllTeamCredits(),
-              scores: db.getAllScores(),
+              scores: db.getScoresByOwnership(),
               owners: db.getAllOwners(),
             });
             geofenceState[key] = state;
@@ -384,7 +393,7 @@ function handlePosition(payload, broadcast) {
           teamCredits:  db.getAllTeamCredits(),
           deviceId,
           deviceName:   name,
-          scores:       db.getAllScores(),
+          scores:       db.getScoresByOwnership(),
           owners:       db.getAllOwners(),
           occupancyMs:  db.getOccupancyTotals(),
           occupancyByTerritory: db.getOccupancyByGeofence(),
@@ -404,6 +413,7 @@ module.exports = {
   getTeamConfig,
   setTeamConfig,
   getGameStatus,
+  getOccupancyFreezeIso,
   getCaptureHoldMs,
   setCaptureHoldMs,
   getGameMode,

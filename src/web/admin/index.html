@@ -101,6 +101,7 @@
       display: none;
     }
     #panel-teams .row-actions button,
+    #panel-scores .row-actions button,
     #panel-push .row-actions button,
     #teams-editor button[data-kind="team-del"],
     #teams-editor button[data-kind="device-del"] {
@@ -435,6 +436,9 @@
       }
       .row-actions {
         flex-wrap: wrap;
+      }
+      #panel-scores .row-actions button {
+        width: 100%;
       }
     }
 
@@ -1092,7 +1096,7 @@ function renderMapTeamCredits(teamCredits = {}) {
 
 function updateCaptureHoldEditability() {
   const locked = gameStatus === 'running';
-  const modeLocked = gameStatus !== 'stopped';
+  const modeLocked = gameStatus === 'running';
   const input = document.getElementById('input-capture-hold-sec');
   const button = document.getElementById('btn-capture-hold-save');
   const info = document.getElementById('capture-hold-lock-info');
@@ -1118,8 +1122,8 @@ function updateCaptureHoldEditability() {
     : 'Wijzigbaar bij paused/stopped';
   creditsInfo.style.color = locked ? '#f8c291' : '#9fb6da';
   modeInfo.textContent = modeLocked
-    ? 'Niet wijzigbaar tenzij status stopped'
-    : 'Wijzigbaar: status stopped';
+    ? 'Niet wijzigbaar tijdens running'
+    : 'Wijzigbaar bij paused/stopped';
   modeInfo.style.color = modeLocked ? '#f8c291' : '#9fb6da';
 }
 

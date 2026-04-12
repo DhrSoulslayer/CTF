@@ -129,15 +129,16 @@ async function notifyGameStatusChange(newStatus) {
 }
 
 function buildSnapshot() {
+  const freezeIso = gameLogic.getOccupancyFreezeIso();
   return {
     type:      'snapshot',
     geofences: db.getAllGeofences(),
     positions: db.getAllPositions(),
-    scores:    db.getAllScores(),
+    scores:    db.getScoresByOwnership(),
     teamCredits: db.getAllTeamCredits(),
     owners:    db.getAllOwners(),
-    occupancyMs: db.getOccupancyTotals(),
-    occupancyByTerritory: db.getOccupancyByGeofence(),
+    occupancyMs: db.getOccupancyTotals(freezeIso),
+    occupancyByTerritory: db.getOccupancyByGeofence(freezeIso),
     mapDefault: db.getMapDefaultView(),
     teams:     gameLogic.getTeamConfig().teams,
     teamColors: gameLogic.getTeamColors(),
@@ -425,12 +426,13 @@ app.put('/api/admin/teams', adminAuth, requireAdminPageRequest, (req, res) => {
 });
 
 app.get('/api/admin/scores', adminAuth, requireAdminPageRequest, (_req, res) => {
+  const freezeIso = gameLogic.getOccupancyFreezeIso();
   res.json({
-    scores: db.getAllScores(),
+    scores: db.getScoresByOwnership(),
     teamCredits: db.getAllTeamCredits(),
     owners: db.getAllOwners(),
-    occupancyMs: db.getOccupancyTotals(),
-    occupancyByTerritory: db.getOccupancyByGeofence(),
+    occupancyMs: db.getOccupancyTotals(freezeIso),
+    occupancyByTerritory: db.getOccupancyByGeofence(freezeIso),
   });
 });
 
@@ -513,8 +515,8 @@ app.put('/api/admin/settings', adminAuth, requireAdminPageRequest, (req, res) =>
 
     let gameMode = gameLogic.getGameMode();
     if (updateGameMode) {
-      if (gameLogic.getGameStatus() !== 'stopped') {
-        return res.status(409).json({ error: 'game mode can only be changed when game is stopped' });
+      if (gameLogic.getGameStatus() === 'running') {
+        return res.status(409).json({ error: 'game mode can only be changed when game is paused or stopped' });
       }
       gameMode = gameLogic.setGameMode(req.body.gameMode);
     }
@@ -541,7 +543,7 @@ app.put('/api/game/status', adminAuth, requireAdminPageRequest, (req, res) => {
     if (!['wait', 'credits'].includes(mode)) {
       return res.status(409).json({ error: 'choose a game mode before starting a round' });
     }
-    // New round starts: reset scores only.
+    // New round starts: reset scores and geofence owners.
     db.resetScores();
     if (mode === 'credits') {
       const teamNames = gameLogic.getTeamConfig().teams.map(team => team.name);

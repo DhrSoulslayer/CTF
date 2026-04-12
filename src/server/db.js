@@ -143,8 +143,13 @@ db.prepare(`
 
 db.prepare(`
   INSERT INTO app_settings (key, value)
-  VALUES ('game_mode', '')
+  VALUES ('game_mode', 'wait')
   ON CONFLICT(key) DO NOTHING
+`).run();
+
+// Migrate: if game_mode was stored as empty string, set it to 'wait'
+db.prepare(`
+  UPDATE app_settings SET value = 'wait' WHERE key = 'game_mode' AND value = ''
 `).run();
 
 function normalizeCaptureHoldMs(input) {
@@ -501,6 +506,16 @@ module.exports = {
     const rows = db.prepare('SELECT * FROM scores').all();
     return rows.reduce((acc, row) => {
       acc[row.team] = row.score;
+      return acc;
+    }, {});
+  },
+
+  getScoresByOwnership() {
+    const rows = db.prepare(
+      "SELECT owner, COUNT(*) as count FROM geofences WHERE owner != 'Neutral' GROUP BY owner"
+    ).all();
+    return rows.reduce((acc, row) => {
+      acc[row.owner] = row.count;
       return acc;
     }, {});
   },
