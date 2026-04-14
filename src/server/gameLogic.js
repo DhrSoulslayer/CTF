@@ -152,6 +152,7 @@ console.log(`Loaded ${Object.keys(deviceTeams).length} device→team mappings`);
 // Key: "<deviceId>::<geofenceName>"  →  { enteredAt: ms|null, triggered: bool }
 const geofenceState = {};
 let capturePauseStartedAtMs = null;
+let claimClockFreezeAtMs = null;
 
 function clearGeofenceState() {
   Object.keys(geofenceState).forEach(key => delete geofenceState[key]);
@@ -179,6 +180,13 @@ function getOccupancyFreezeIso() {
   return null; // null = use real now
 }
 
+function getClaimClockFreezeIso() {
+  if ((gameStatus === 'paused' || gameStatus === 'stopped') && Number.isFinite(claimClockFreezeAtMs)) {
+    return new Date(claimClockFreezeAtMs).toISOString();
+  }
+  return null;
+}
+
 function getCaptureHoldMs() {
   return captureHoldMs;
 }
@@ -204,14 +212,23 @@ function setGameStatus(status) {
   if (!VALID_GAME_STATES.has(status)) {
     throw new Error('invalid game status');
   }
+  const nowMs = Date.now();
   const previousStatus = gameStatus;
   if (previousStatus === 'running' && status === 'paused') {
-    capturePauseStartedAtMs = Date.now();
+    capturePauseStartedAtMs = nowMs;
+    claimClockFreezeAtMs = nowMs;
   }
   if (previousStatus === 'paused' && status === 'running' && Number.isFinite(capturePauseStartedAtMs)) {
-    const pauseDurationMs = Math.max(0, Date.now() - capturePauseStartedAtMs);
+    const pauseDurationMs = Math.max(0, nowMs - capturePauseStartedAtMs);
     shiftGeofenceStateByPauseDuration(pauseDurationMs);
     capturePauseStartedAtMs = null;
+    claimClockFreezeAtMs = null;
+  }
+  if (status === 'running') {
+    claimClockFreezeAtMs = null;
+  }
+  if (status === 'stopped') {
+    claimClockFreezeAtMs = nowMs;
   }
   gameStatus = status;
   db.setGameStatus(status);
@@ -226,6 +243,7 @@ function resetGame() {
   db.resetGameProgress();
   clearGeofenceState();
   capturePauseStartedAtMs = null;
+  claimClockFreezeAtMs = null;
 }
 
 function isOwnerLockedInGeofence(geofence, ownerTeam) {
@@ -414,6 +432,7 @@ module.exports = {
   setTeamConfig,
   getGameStatus,
   getOccupancyFreezeIso,
+  getClaimClockFreezeIso,
   getCaptureHoldMs,
   setCaptureHoldMs,
   getGameMode,

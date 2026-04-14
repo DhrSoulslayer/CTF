@@ -547,11 +547,14 @@ function showTeamAlert(message) {
   teamAlertTimer = setTimeout(() => box.classList.remove('open'), 7000);
 }
 
-function applyGameStatus(status) {
+function applyGameStatus(status, freezeAtIso) {
   const previousStatus = gameStatus;
   gameStatus = status;
   if (status === 'paused' || status === 'stopped') {
-    if (previousStatus !== status || !Number.isFinite(claimClockFreezeAtMs)) {
+    const freezeAtMs = Date.parse(freezeAtIso || '');
+    if (Number.isFinite(freezeAtMs)) {
+      claimClockFreezeAtMs = freezeAtMs;
+    } else if (previousStatus !== status || !Number.isFinite(claimClockFreezeAtMs)) {
       claimClockFreezeAtMs = Date.now();
     }
   } else {
@@ -812,7 +815,7 @@ function applySnapshot(data) {
   const nextGameStatus = data.game?.status || 'unknown';
   const keepLiveViewport = nextGameStatus === 'running';
   applyMapDefaultView(data.mapDefault || mapDefaultView, { applyToMap: !keepLiveViewport });
-  applyGameStatus(nextGameStatus);
+  applyGameStatus(nextGameStatus, data.game?.claimClockFreezeAt);
 
   (data.geofences || []).forEach(gf => upsertGeofence(gf));
   if (keepLiveViewport) {
@@ -1016,7 +1019,7 @@ function connect() {
 
       case 'game_status':
         const prevGameStatus = gameStatus;
-        applyGameStatus(msg.status || 'unknown');
+        applyGameStatus(msg.status || 'unknown', msg.claimClockFreezeAt);
         // iOS PWA fallback push notification for game status change
         if (isIOSPWA() && iosPushEnabled && gameStatus !== prevGameStatus) {
           if (gameStatus === 'running') {

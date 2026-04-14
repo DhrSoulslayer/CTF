@@ -145,6 +145,7 @@ function buildSnapshot() {
     game:      {
       status: gameLogic.getGameStatus(),
       mode: gameLogic.getGameMode(),
+      claimClockFreezeAt: gameLogic.getClaimClockFreezeIso(),
       captureHoldMs: gameLogic.getCaptureHoldMs(),
       initialTeamCredits: db.getInitialTeamCredits(),
     },
@@ -299,6 +300,7 @@ app.get('/api/game', (_req, res) => {
   res.json({
     status: gameLogic.getGameStatus(),
     mode: gameLogic.getGameMode(),
+    claimClockFreezeAt: gameLogic.getClaimClockFreezeIso(),
     captureHoldMs: gameLogic.getCaptureHoldMs(),
     initialTeamCredits: db.getInitialTeamCredits(),
     teamCredits: db.getAllTeamCredits(),
@@ -575,7 +577,7 @@ app.put('/api/game/status', adminAuth, requireAdminPageRequest, (req, res) => {
   notifyGameStatusChange(nextStatus).catch(err => {
     console.error('Push notify failed:', err.message);
   });
-  res.json({ status: nextStatus, savedRoundId });
+  res.json({ status: nextStatus, claimClockFreezeAt: snapshot.game?.claimClockFreezeAt || null, savedRoundId });
 });
 
 app.post('/api/game/reset', adminAuth, requireAdminPageRequest, (_req, res) => {

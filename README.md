@@ -1,209 +1,263 @@
 # CTF - Capture The Flag
 
-Realtime Capture The Flag-platform met Traccar GPS-trackers.
+Realtime Capture The Flag-platform met Traccar GPS-trackers, polygon-geofences, live score, rondes, history en Web Push notificaties.
 
-Een team verovert een gebied wanneer een tracker minimaal 30 seconden aaneengesloten binnen dat gebied blijft.
+## Wat deze app doet
 
-## Overzicht
+Teams claimen gebieden op basis van echte GPS-posities.
+Een claim slaagt wanneer een tracker lang genoeg aaneengesloten binnen een gebied blijft.
 
-Deze applicatie bestaat uit:
+Belangrijkste regels:
 
-1. Publieke livekaart op /pub voor spelers en toeschouwers.
-2. Beveiligde adminomgeving op /admin voor kaart- en gamebeheer.
-3. Traccar position forward endpoint op /traccar voor inkomende GPS-posities.
-4. Realtime synchronisatie via WebSocket (/ws).
-5. Persistente opslag in SQLite (/data/app.db).
+1. Capture-logica draait alleen als de game status `running` is.
+2. Bij status `paused` of `stopped` lopen claim-klokken niet door; timers zijn server-gefrozen.
+3. Bij status `stopped` wordt de actieve ronde opgeslagen in history.
 
-## Functionaliteit
+## Hoofdonderdelen
 
-### Publieke pagina (/pub)
+1. Publieke livekaart op `/` en `/pub`.
+2. Adminomgeving op `/admin` (Basic Auth).
+3. Traccar webhook endpoint op `/traccar`.
+4. Realtime updates via WebSocket op `/ws`.
+5. Persistente opslag in SQLite (`/data/app.db`).
 
-1. Live kaart met alle gebieden en trackerposities.
-2. Scorebord met teamscores.
-3. Overzicht van gebiedseigenaren.
-4. Home-knop om de kaart op alle gebieden te centreren.
-5. Admin-knop die doorverwijst naar /admin/.
-6. Centrale claim-klok per gebied: toont alleen de huidige claimduur sinds de laatste owner-wissel en kleurt mee met de eigenaar.
-7. Voor gebieden met owner `Neutral` wordt geen claim-klok getoond.
-7. Responsive layout voor mobiel en tablet.
-8. Opstartflow: eerst team kiezen, daarna optioneel push inschakelen, daarna live kaart laden.
-9. Team wisselen tijdens running is geblokkeerd; wisselen kan alleen bij paused of stopped.
-10. Geselecteerd team ziet live eigen resterende credits op de publieke pagina.
+## Leeswijzer
 
-### Admin pagina (/admin)
+Deze README is opgesplitst in 3 praktische delen:
 
-Basic Auth-beveiligde beheerpagina met vijf panelen.
+1. Snelle start (2 minuten): direct draaien met Docker Compose.
+2. Admin handleiding: dagelijkse bediening en spelbeheer.
+3. API reference (technisch): endpoints, websocket events en snapshotvelden.
 
-1. Kaart bewerken:
-   - Polygonen tekenen.
-  - Oppervlakte per gebied zichtbaar in m² tijdens beheer.
-   - Bestaande polygonen aanpassen.
-   - Gebieden hernoemen of verwijderen.
-   - Live trackerweergave op de kaart.
-  - Centrale claim-klok per gebied die live oploopt en reset bij eigenaarswissel.
-  - Instelbare claimtijd (in seconden) voor gebiedsovername.
-  - Claimtijd wijzigen is alleen toegestaan bij game status paused of stopped.
-   - Gamebediening: Start, Pause, Stop, Reset.
-2. Scores:
-   - Teamscore per team.
-   - Huidige eigenaar per gebied.
-   - Bezettingstijd per team.
-   - Bezettingstijd per gebied per team (matrixweergave).
-3. Teams:
-   - Teamnamen en kleuren beheren.
-   - Tracker uniqueId -> team mapping beheren.
-   - Wijzigingen direct live toepassen na opslaan.
-4. Responsive bediening op mobiel/tablet, inclusief bruikbare tracker-ID en teaminvoervelden.
-5. History:
-  - Overzicht van opgeslagen rondes.
-  - Per ronde eindscore en eindtijd.
-  - Kaartweergave van polygonen zoals gebruikt in die ronde (snapshot), ook als latere polygonen zijn aangepast of opnieuw geïmporteerd.
-6. Spelmodi:
-  - Precies 1 actieve modus tegelijk: `wait` of `credits`.
-  - `wait`: claimen kost geen credits, alleen wachttijd.
-  - `credits`: claimen kost credits op basis van oppervlakte.
-  - Modus moet gekozen zijn voordat een ronde gestart kan worden.
-  - Modus is alleen wijzigbaar als de game status `stopped` is.
+## Admin handleiding
 
-### PWA en pushmeldingen
+### Workflow in 6 stappen
 
-1. De app bevat een Web App Manifest op `/manifest.webmanifest`.
-2. Service worker staat op `/sw.js` en wordt geregistreerd in `/pub` en `/admin`.
-3. Push events worden in de service worker afgehandeld en als notificatie getoond.
-4. Voor push en install als PWA is HTTPS nodig (of localhost tijdens development).
-5. Jij regelt SSL en reverse proxy; dat is voldoende om Web Push browser-vereisten te halen.
-6. De server gebruikt VAPID-configuratie voor push. Als deze variabelen niet gezet zijn, genereert de server automatisch een keypair en slaat die persistent op in de database.
-7. Push-subscriptions worden team-specifiek opgeslagen voor opt-in en beheer vanuit de client.
-8. Bij elke succesvolle claim wordt een pushbericht verstuurd naar alle actieve push-subscriptions met:
-  - Titel: `Gebied geclaimd!`
-  - Tekst: `Team "<teamnaam>" heeft het gebied overgenomen!`
-9. Bij onvoldoende credits voor een claimpoging ontvangt alleen het betrokken team een pushmelding.
+1. Open `/admin` en log in met Basic Auth.
+2. Teken/importeer geofences en stel teams + device mapping in.
+3. Kies game mode (`wait` of `credits`) en zet capture hold-time.
+4. Start ronde via status `running`.
+5. Pauzeer (`paused`) of stop (`stopped`) indien nodig.
+6. Bekijk history en scores na afloop.
 
-VAPID environment variabelen:
+### Functionaliteit
 
-1. `VAPID_PUBLIC_KEY`
-2. `VAPID_PRIVATE_KEY`
-3. `VAPID_SUBJECT` (bijvoorbeeld `mailto:admin@jouwdomein.nl`)
+### Publieke pagina (`/` en `/pub`)
 
-Zonder deze variabelen blijft push beschikbaar door automatische keygeneratie; expliciet instellen kan nog steeds voor beheerde sleutelrotatie.
+1. Live kaart met alle geofences en trackerposities.
+2. Score-pills per team.
+3. Geofence owner-overzicht op basis van live snapshot.
+4. Claim-klok per geofence (alleen bij owner != `Neutral`).
+5. Claim-klok bevriest correct bij `paused` en `stopped`.
+6. Opstartflow: team kiezen, daarna push activeren.
+7. Team-lock tijdens `running`: team wisselen is dan geblokkeerd.
+8. Credits-pill voor geselecteerd team in `credits` mode.
+9. Team-alerts bij bijvoorbeeld blocked captures.
+10. iOS PWA fallback notificaties als PushManager niet beschikbaar is.
+11. Responsive layout voor mobiel en tablet.
 
-### Captureregels
+### Admin pagina (`/admin`)
 
-1. Positie komt binnen via Traccar.
-2. Alleen bij game status running wordt capturelogica toegepast.
-4. Als een tracker minimaal de ingestelde capture-tijd aaneengesloten in een gebied blijft, wordt het gebied overgenomen.
-4. Claimen kost credits op basis van gebiedsgrootte: 1 credit per m² (afgerond naar boven).
-5. Een claim wordt alleen uitgevoerd als het team voldoende credits heeft.
-6. Score telt alleen op bij echte wisseling van eigenaar.
-5. Bij eigenaarswissel wordt bezettingstijd van de vorige eigenaar opgeslagen.
-6. Neutral-bezettingstijd wordt niet bijgehouden.
-7. Bij eigenaarswissel (succesvolle claim) ontvangen push-geabonneerde browsers een melding: `Gebied geclaimd!`.
-8. Bij onvoldoende credits voor een claimpoging ontvangt alleen het betrokken team een pushmelding.
+1. Geofences tekenen, aanpassen, hernoemen en verwijderen.
+2. Geofences importeren/exporteren (`replace` of `merge`).
+3. Live trackerweergave en centrale claim-klokken op kaart.
+4. Game controls: `running`, `paused`, `stopped`, `reset`.
+5. Capture hold-time configureren (alleen bij paused/stopped).
+6. Initial team credits configureren (alleen bij paused/stopped).
+7. Game mode kiezen (`wait` of `credits`, alleen bij paused/stopped).
+8. Teambeheer: teamnamen, kleuren, device->team mapping.
+9. Push panel: subscriber stats en admin broadcast.
+10. Scores panel met owners en occupancy statistieken.
+11. History panel met afgeronde rondes en geofence snapshot per ronde.
+12. Responsive beheerinterface.
 
-Game status-overgangen:
+### Game modes
 
-1. Overgang van stopped naar running start een nieuwe ronde, zet scores op nul en geeft elk team dezelfde startcredits.
-2. Tijdens paused blijven scores en credits behouden.
-3. Overgang van running of paused naar stopped slaat de ronde op in history.
+1. `wait`
+- Claimen kost geen credits.
+- Alleen capture hold-time bepaalt of claim slaagt.
 
-Capture-tijd configuratie:
+2. `credits`
+- Claimen kost credits op basis van geofence-oppervlak.
+- Kostenformule: `ceil(area_m2)` credits.
+- Claim met onvoldoende credits wordt geblokkeerd (`capture_blocked`).
 
-1. De capture-tijd is backend-configuratie in milliseconden (standaard 30000 ms).
-2. Aanpassen mag alleen als de game status paused of stopped is.
-3. Tijdens running wordt een wijziging geweigerd.
+## Game state en rondegedrag
 
-Credits configuratie:
+1. `stopped -> running`
+- Start nieuwe ronde.
+- Reset scores en owners.
+- Initialiseert credits in `credits` mode.
+- Weigert start als game mode niet gezet is.
 
-1. Startcredits per team zijn backend-configuratie (gelijke waarde voor alle teams per nieuwe ronde).
-2. Aanpassen mag alleen als de game status paused of stopped is.
-3. Tijdens running wordt een wijziging geweigerd.
+2. `running -> paused`
+- Capture-checks stoppen.
+- Claim-klokken worden bevroren op server-tijd.
 
-### Opslag en historie
+3. `paused -> running`
+- Capture-checks hervatten.
+- Geofence-enter timers schuiven mee zodat pauzetijd niet meetelt.
 
-De database bewaart onder andere:
+4. `running/paused -> stopped`
+- Actieve ronde wordt opgeslagen in history.
+- Snapshot bevat eindscores, eindcredits, owners en geofences.
 
-1. Geofences, eigenaar en eigenaar-sinds-tijdstip.
-2. Laatste positie per tracker.
-3. Teamscores.
-4. Gamestatus.
-5. Totale bezettingstijd per team.
-6. Bezettingstijd per gebied per team.
-7. Rondehistorie met start/eindtijd, eindscores, eindcredits, owners en polygon-snapshot.
+5. `reset`
+- Reset game progress en in-memory capture state.
 
-## Snel starten (Docker Compose)
+## Push notificaties
 
-### 1. Repository ophalen
+1. VAPID wordt ondersteund via env vars.
+2. Zonder VAPID env vars worden keys automatisch gegenereerd en in DB opgeslagen.
+3. Team-specifieke subscriptions worden opgeslagen in SQLite.
+4. Notificaties bij:
+- succesvolle claim (`capture`)
+- onvoldoende credits (`capture_blocked`, alleen betrokken team)
+- game status wijziging (`running`, `paused`, `stopped`)
+- admin broadcast
+
+## API reference (technisch)
+
+### Publieke API
+
+1. `GET /healthz`
+2. `GET /api/state`
+3. `GET /api/game`
+4. `GET /api/geofences`
+5. `POST /traccar`
+6. `GET /api/push/public-key`
+7. `POST /api/push/subscribe`
+8. `POST /api/push/unsubscribe`
+
+### Admin API (Basic Auth)
+
+1. `GET /api/admin/teams`
+2. `PUT /api/admin/teams`
+3. `GET /api/admin/scores`
+4. `GET /api/admin/history`
+5. `GET /api/admin/history/:id`
+6. `GET /api/admin/geofences/export`
+7. `POST /api/admin/geofences/import`
+8. `GET /api/admin/settings`
+9. `PUT /api/admin/settings`
+10. `GET /api/admin/push/stats`
+11. `POST /api/admin/push/broadcast`
+12. `PUT /api/game/status`
+13. `POST /api/game/reset`
+14. `POST /api/geofences`
+15. `PUT /api/geofences/:name`
+16. `DELETE /api/geofences/:name`
+
+Opmerking:
+Admin API gebruikt Basic Auth. Extra origin/referer checks kunnen optioneel aangezet worden via `STRICT_ADMIN_ORIGIN_CHECK=1`.
+
+## WebSocket eventtypes
+
+Server kan onder andere deze events sturen:
+
+1. `snapshot`
+2. `position`
+3. `geofence_update`
+4. `geofence_delete`
+5. `capture`
+6. `capture_blocked`
+7. `settings_update`
+8. `admin_broadcast`
+
+## Snapshot velden (belangrijk)
+
+`/api/state` en init-snapshot op `/ws` bevatten o.a.:
+
+1. `geofences`, `positions`, `scores`, `owners`
+2. `teamCredits`
+3. `occupancyMs`, `occupancyByTerritory`
+4. `mapDefault`
+5. `teams`, `teamColors`
+6. `game.status`, `game.mode`, `game.captureHoldMs`, `game.initialTeamCredits`
+7. `game.claimClockFreezeAt`
+
+## Omgevingsvariabelen
+
+| Variabele | Standaard | Betekenis |
+|---|---|---|
+| `PORT` | `3456` | HTTP-poort |
+| `DB_PATH` | `/data/app.db` | Pad naar SQLite database |
+| `ADMIN_USER` | `admin` | Admin gebruikersnaam |
+| `ADMIN_PASS` | `admin` | Admin wachtwoord |
+| `VAPID_PUBLIC_KEY` | leeg | Web Push public key |
+| `VAPID_PRIVATE_KEY` | leeg | Web Push private key |
+| `VAPID_SUBJECT` | `mailto:admin@example.com` | Contactsubject voor push |
+| `STRICT_ADMIN_ORIGIN_CHECK` | leeg (`0` gedrag) | Zet op `1` om strikte origin/referer check te forceren |
+| `ADMIN_PUBLIC_HOSTS` | leeg | Toegestane hosts voor strict admin-origin check |
+
+## Snelle start (2 minuten)
+
+### 1. Repo clonen
 
 ```bash
 git clone https://github.com/DhrSoulslayer/CTF.git
 cd CTF
 ```
 
-### 2. Teams en tracker-mapping instellen
-
-Pas src/shared/teams.json aan. Koppel Traccar uniqueId's aan teamnamen.
-
-Voorbeeld:
-
-```json
-{
-  "teams": [
-    { "name": "Alfa", "color": "#e6194B" },
-    { "name": "Bravo", "color": "#3cb44b" }
-  ],
-  "devices": {
-    "15839851": "Alfa",
-    "12345678": "Bravo"
-  }
-}
-```
-
-### 3. Applicatie starten
+### 2. Starten
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-Standaard draait de app op poort 3456.
+Standaard luistert de app op `http://localhost:3456`.
 
-Deze repository gebruikt standaard een gepubliceerde image (`dhrsoulslayer/ctf:latest`) in `docker-compose.yml`.
+### 2b. Directe checks
 
-Update-flow voor nieuwe versies:
+1. Publieke kaart: `/` of `/pub`
+2. Admin: `/admin`
+3. Healthcheck: `/healthz`
+
+### 3. Volumes
+
+`docker-compose.yml` gebruikt volume `ctf-data` voor persistente opslag van DB en instellingen.
+
+## Docker image build en push
+
+Deze repository is ingesteld op Docker Hub image `dhrsoulslayer/ctf:latest`.
+
+Handmatige build/push:
+
+```bash
+docker build -t dhrsoulslayer/ctf:latest .
+docker push dhrsoulslayer/ctf:latest
+```
+
+Daarna op doelhost:
 
 ```bash
 docker compose pull
 docker compose up -d
-docker compose ps
 ```
 
-### 4. Traccar configureren
+## Traccar configuratie
 
-Deze app verwacht aan de Traccar-kant geen gewone event-notification, maar de ingebouwde position forwarder in JSON-formaat.
-
-Stel in Traccar daarom dit in:
+Gebruik Traccar position forwarder in JSON-formaat:
 
 ```xml
 <entry key='forward.type'>json</entry>
 <entry key='forward.url'>http://JOUW_HOST:3456/traccar</entry>
 ```
 
-Optioneel, maar nuttig als je retries wilt bij tijdelijke netwerkfouten:
+Optioneel retries:
 
 ```xml
 <entry key='forward.retry.enable'>true</entry>
 ```
 
-Belangrijk aan de Traccar-kant:
+Belangrijk:
 
-1. Gebruik `forward.type=json`, anders krijgt deze app niet het payload-formaat dat zij verwacht.
-2. `forward.url` mag globaal in de Traccar serverconfig staan of per device als device attribute worden gezet.
-3. De Traccar server moet `http://JOUW_HOST:3456/traccar` echt kunnen bereiken. Gebruik dus een hostnaam of IP dat vanuit de Traccar machine/container resolvebaar is.
-4. Als deze app achter een reverse proxy draait, gebruik dan de publieke `https://.../traccar` URL.
-5. De `uniqueId` van elk device in Traccar moet exact overeenkomen met de device key die je in `src/shared/teams.json` of in de adminpagina aan een team koppelt.
-6. De device `name` uit Traccar wordt in deze app gebruikt als trackernaam op de kaart.
+1. `uniqueId` van Traccar-device moet overeenkomen met je device mapping.
+2. Teamkoppeling staat in `src/shared/teams.json` of wordt in admin ingesteld.
+3. Traccar moet endpoint `/traccar` netwerkmatig kunnen bereiken.
 
-De JSON payload die deze app verwacht bevat minimaal:
+## Voorbeeld payload voor `/traccar`
 
 ```json
 {
@@ -220,175 +274,42 @@ De JSON payload die deze app verwacht bevat minimaal:
 }
 ```
 
-Opmerking: Traccar event notifications zoals geofence enter/exit of alarm notifications zijn voor deze app niet nodig om capturen te laten werken. De capturelogica draait volledig op de doorgestuurde positie-updates.
+## Dataopslag
 
-### 5. Testen zonder Traccar (met curl)
+SQLite bewaart onder andere:
 
-Je kunt de webhook direct testen met curl, zonder Traccar-installatie.
-
-1. Start de app met Docker Compose.
-2. Stuur een testpositie naar `/traccar`:
-
-```bash
-curl -X POST http://localhost:3456/traccar \
-  -H "Content-Type: application/json" \
-  -d '{
-    "device": {
-      "uniqueId": "15839851",
-      "name": "Curl Tracker",
-      "lastUpdate": "2026-04-08T18:30:00.000Z"
-    },
-    "position": {
-      "latitude": 52.0907,
-      "longitude": 5.1214,
-      "serverTime": "2026-04-08T18:30:00.000Z"
-    }
-  }'
-```
-
-Verwacht resultaat:
-
-1. HTTP 200 response op de POST-call.
-2. De tracker verschijnt op `/pub` en `/admin`.
-3. Als `uniqueId` aan een team gekoppeld is, telt de positie mee voor capturelogica.
-
-Snelle capture-test zonder Traccar: stuur dezelfde positie meerdere keren met oplopende tijdstempel (minimaal 30 seconden totaal) terwijl de game op `running` staat en de positie in een gebied ligt.
-
-```bash
-for i in $(seq 0 6); do
-  ts=$(date -u -d "2026-04-08T18:30:00Z +$((i*5)) seconds" +"%Y-%m-%dT%H:%M:%S.000Z")
-  curl -s -X POST http://localhost:3456/traccar \
-    -H "Content-Type: application/json" \
-    -d "{\"device\":{\"uniqueId\":\"15839851\",\"name\":\"Curl Tracker\",\"lastUpdate\":\"$ts\"},\"position\":{\"latitude\":52.0907,\"longitude\":5.1214,\"serverTime\":\"$ts\"}}" >/dev/null
-done
-```
-
-Deze applicatie is bedoeld om als Docker-container te draaien. Gebruik daarom Docker Compose of een losse Docker image voor deployments en lokaal gebruik.
-
-### 6. Node-RED flow (proxy op /traccar)
-
-Er staat een importeerbare Node-RED flow in `nodered/traccar-forward-3456.flow.json`.
-
-Wat deze flow doet:
-
-1. Luistert op `POST /traccar` in Node-RED.
-2. Stuurt de ontvangen JSON direct door naar `http://localhost:3456/traccar`.
-3. Geeft de HTTP-status van de CTF-app terug aan de afzender.
-
-Importeren in Node-RED:
-
-1. Open Node-RED editor.
-2. Menu -> Import -> selecteer `nodered/traccar-forward-3456.flow.json`.
-3. Klik Deploy.
-
-Opmerking: als Node-RED in Docker draait en niet op dezelfde host-network stack zit, wijzig dan in de flow de target URL naar de service-naam binnen het Docker netwerk (bijvoorbeeld `http://ctf:3456/traccar`).
-
-## URL's
-
-| URL | Doel |
-|---|---|
-| / | Redirect naar /pub |
-| /pub | Publieke livekaart |
-| /admin | Adminomgeving (Basic Auth) |
-| /healthz | Healthcheck |
-| /api/state | Volledige snapshot (JSON) |
-| /ws | WebSocket realtime updates |
-
-## Omgevingsvariabelen
-
-| Variabele | Standaard | Betekenis |
-|---|---|---|
-| PORT | 3456 | HTTP-poort |
-| DB_PATH | /data/app.db | Pad naar SQLite database |
-| ADMIN_USER | admin | Gebruikersnaam voor /admin |
-| ADMIN_PASS | admin | Wachtwoord voor /admin |
-| VAPID_PUBLIC_KEY | - | Public VAPID key voor Web Push |
-| VAPID_PRIVATE_KEY | - | Private VAPID key voor Web Push |
-| VAPID_SUBJECT | mailto:admin@example.com | Contactsubject voor Web Push |
-
-Als `VAPID_PUBLIC_KEY` en `VAPID_PRIVATE_KEY` ontbreken, worden ze bij eerste start automatisch gegenereerd en in `app_settings` opgeslagen.
-
-Opmerking: in docker-compose.yml staan momenteel project-specifieke waarden ingesteld voor ADMIN_PASS.
-
-## API-overzicht
-
-### Publiek
-
-1. GET /healthz
-2. GET /api/state
-3. GET /api/game
-4. GET /api/geofences
-5. POST /traccar
-6. GET /api/push/public-key
-7. POST /api/push/subscribe
-8. POST /api/push/unsubscribe
-
-### Admin-beveiligd (Basic Auth + adminpagina referercontrole)
-
-1. GET /api/admin/teams
-2. PUT /api/admin/teams
-3. GET /api/admin/scores
-4. PUT /api/game/status
-5. POST /api/game/reset
-6. POST /api/geofences
-7. PUT /api/geofences/:name
-8. DELETE /api/geofences/:name
-9. GET /api/admin/settings
-10. PUT /api/admin/settings
-11. GET /api/admin/history
-12. GET /api/admin/history/:id
-
-## WebSocket-events
-
-Server stuurt onder andere deze eventtypes:
-
-1. snapshot
-2. position
-3. geofence_update
-4. geofence_delete
-5. capture
-6. game_status
-7. settings_update
-
-## Teams en standaardkleuren
-
-| Team | Kleur |
-|---|---|
-| Alfa | #e6194B |
-| Bravo | #3cb44b |
-| Charlie | #ffe119 |
-| Delta | #4363d8 |
-| Echo | #f58231 |
-| Foxtrot | #911eb4 |
-| Juliet | #46f0f0 |
-| India | #fabed4 |
-| Neutral | #808080 |
+1. Geofences met owner en ownerSince.
+2. Laatste positie per device.
+3. Teamscores.
+4. Team credits.
+5. Occupancy totalen per team.
+6. Occupancy per geofence per team.
+7. Rondehistory met geofence snapshot.
+8. Push subscriptions per team.
+9. VAPID configuratie (indien auto-gegenereerd).
 
 ## Projectstructuur
 
 ```text
 .
-|- Dockerfile
 |- docker-compose.yml
+|- Dockerfile
 |- package.json
 |- README.md
 |- src/
 |  |- server/
-|  |  |- index.js
 |  |  |- db.js
 |  |  |- gameLogic.js
+|  |  |- index.js
+|  |  |- push.js
 |  |- shared/
 |  |  |- teams.json
 |  |- web/
-|     |- pub/
-|     |  |- index.html
 |     |- admin/
+|     |  |- index.html
+|     |- lib/
+|     |- pub/
 |        |- index.html
+|        |- manifest.webmanifest
+|        |- sw.js
 ```
-
-## Technische notities
-
-1. Bij connectie op /ws ontvangt elke client eerst een volledige snapshot.
-2. SQLite draait in WAL-modus voor betere leesprestaties.
-3. Score- en bezettingstijden blijven behouden over restarts (bij persistent volume).
-4. Reset wist posities, scores en bezettingstijdhistorie en zet alle gebieden terug naar Neutral.
